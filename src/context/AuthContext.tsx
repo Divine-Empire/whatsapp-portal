@@ -1,3 +1,4 @@
+'use client';
 "use client";
 
 import React, { createContext, useContext, useState } from 'react';
@@ -51,3 +52,4 @@ export const useAuth = () => {
   }
   return context;
 };
+
