@@ -1,7 +1,8 @@
 'use client';
 import React from 'react';
 import { useApp } from '../../context/AppContext';
-import { Menu, RefreshCw, Zap, LogOut, Bell } from 'lucide-react';
+import { Menu, RefreshCw, Zap, LogOut, Bell, Settings } from 'lucide-react';
+import Link from 'next/link';
 
 const PAGE_TITLES = {
   overview:  'Overview',
@@ -16,7 +17,21 @@ export default function Topbar() {
 
   const syncStr = lastSync.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
-  const handleMatchReplies = () => addToast('Matching incoming replies with contacts…', 'info');
+  const handleMatchReplies = async () => {
+    addToast('Matching incoming replies with contacts…', 'info');
+    try {
+      const res = await fetch('/api/match-replies', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        addToast(`Success: Reconciled ${data.stats.updatedConversations} chats and ${data.stats.updatedMessages} messages.`, 'success');
+        handleRefresh();
+      } else {
+        addToast(`Error: ${data.error || 'Failed to reconcile data'}`, 'error');
+      }
+    } catch (err) {
+      addToast('Error: Failed to connect to reconciliation service', 'error');
+    }
+  };
 
   return (
     <header className="h-14 md:h-16 flex items-center justify-between px-3 md:px-4 bg-[var(--color-wa-card)] border-b border-[var(--color-wa-border)] flex-shrink-0 z-20">
@@ -30,7 +45,7 @@ export default function Topbar() {
         </button>
         <div className="min-w-0">
           <h1 className="text-[14px] md:text-[15px] font-semibold text-[var(--color-wa-text)] truncate">{PAGE_TITLES[activePage]}</h1>
-          <p className="text-[10px] md:text-[11px] text-[var(--color-wa-muted)] hidden sm:block">Last sync: {syncStr}</p>
+          <p suppressHydrationWarning className="text-[10px] md:text-[11px] text-[var(--color-wa-muted)] hidden sm:block">Last sync: {syncStr}</p>
         </div>
       </div>
 
@@ -62,9 +77,13 @@ export default function Topbar() {
 
         {/* User */}
         <div className="flex items-center gap-1.5 md:gap-2 pl-2 border-l border-[var(--color-wa-border)]">
-          <div className="w-7 h-7 rounded-full bg-[#25D366] flex items-center justify-center text-white text-[11px] font-bold shadow-sm">
+          <Link 
+            href="/onboarding"
+            className="w-7 h-7 rounded-full bg-[#25D366] hover:bg-[#1ebe5d] transition-all flex items-center justify-center text-white text-[11px] font-bold shadow-sm"
+            title="Meta configuration & webhooks"
+          >
             {session?.name?.[0] || 'A'}
-          </div>
+          </Link>
           <button
             onClick={logout}
             className="p-1.5 text-[var(--color-wa-muted)] hover:text-red-500 transition"
@@ -77,4 +96,3 @@ export default function Topbar() {
     </header>
   );
 }
-

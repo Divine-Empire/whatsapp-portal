@@ -1,82 +1,90 @@
 'use client';
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-// Dummy data disconnected; awaiting backend integration
+import { useRouter } from 'next/navigation';
+import { createClient } from '@/lib/supabase/client';
 
 const AppContext = createContext(null);
 
-const DUMMY_USER = { email: 'admin@wabusiness.com', password: 'admin123', name: 'Admin User' };
-
-function initialize() {
-  return { 
-    contacts: [], 
-    messages: [], 
-    templates: [], 
-    hourly: [], 
-    daily: [], 
-    credits: { used: 0, remaining: 0, limit: 10000 }, 
-    conversations: [] 
-  };
-}
+const DEFAULT_STATS = { sent: 0, delivered: 0, read: 0, failed: 0, queue: 0, replies: 0, total: 0 };
+const DEFAULT_DATA = { 
+  hourly: [], 
+  messages: [], 
+  templates: [], 
+  contacts: [], 
+  credits: { remaining: 0, used: 0, limit: 10000 } 
+};
 
 export function AppProvider({ children }) {
-  const [session,       setSession]       = useState(() => {
-    if (typeof window !== 'undefined') {
-      try { return JSON.parse(localStorage.getItem('wa_session')) || null; } catch { return null; }
-    }
-    return null;
-  });
-  const [activePage,    setActivePage]    = useState('overview');
-  const [sidebarOpen,   setSidebarOpen]   = useState(false);
-  const [toasts,        setToasts]        = useState([]);
-  const [lastSync,      setLastSync]      = useState(new Date());
-  const [refreshing,    setRefreshing]    = useState(false);
+  const router = useRouter();
+  const [session, setSession] = useState(null);
+  const [activePage, setActivePage] = useState('overview');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [toasts, setToasts] = useState([]);
+  const [lastSync, setLastSync] = useState(new Date());
+  const [refreshing, setRefreshing] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
 
-  // Core data
-  const [data, setData] = useState(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const initialized = localStorage.getItem('wa_initialized_v5');
-        if (initialized) {
-          return {
-            contacts:      JSON.parse(localStorage.getItem('wa_contacts')     || '[]'),
-            messages:      JSON.parse(localStorage.getItem('wa_messages')     || '[]'),
-            templates:     JSON.parse(localStorage.getItem('wa_templates')    || '[]'),
-            hourly:        JSON.parse(localStorage.getItem('wa_hourly')       || '[]'),
-            daily:         JSON.parse(localStorage.getItem('wa_daily')        || '[]'),
-            credits:       JSON.parse(localStorage.getItem('wa_credits')      || '{}'),
-            conversations: JSON.parse(localStorage.getItem('wa_conversations')|| '[]'),
-          };
-        }
-      } catch {}
-      const fresh = initialize();
-      localStorage.setItem('wa_contacts',      JSON.stringify(fresh.contacts));
-      localStorage.setItem('wa_messages',      JSON.stringify(fresh.messages));
-      localStorage.setItem('wa_templates',     JSON.stringify(fresh.templates));
-      localStorage.setItem('wa_hourly',        JSON.stringify(fresh.hourly));
-      localStorage.setItem('wa_daily',         JSON.stringify(fresh.daily));
-      localStorage.setItem('wa_credits',       JSON.stringify(fresh.credits));
-      localStorage.setItem('wa_conversations', JSON.stringify(fresh.conversations));
-      localStorage.setItem('wa_initialized_v5', '1');
-      return fresh;
-    }
-    return initialize();
-  });
+  // Core real-time data
+  const [data, setData] = useState(DEFAULT_DATA);
+  const [stats, setStats] = useState(DEFAULT_STATS);
+
+  const supabase = createClient();
+
+  useEffect(() => {
+    // 1. Initial Session Fetch
+    const initSession = async () => {
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      
+      if (!currentSession) {
+        setIsInitializing(false);
+        router.push('/login');
+        return;
+      }
+      
+      setSession({
+        email: currentSession.user.email,
+        name: currentSession.user.user_metadata?.name || 'User',
+        id: currentSession.user.id
+      });
+      setIsInitializing(false);
+      handleRefresh(); // Fetch data immediately after logging in
+    };
+
+    initSession();
+
+    // 2. Auth State Listener
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
+      if (['SIGNED_OUT', 'USER_DELETED'].includes(event)) {
+        setSession(null);
+        router.push('/login');
+      } else if (event === 'SIGNED_IN' && currentSession) {
+        setSession({
+          email: currentSession.user.email,
+          name: currentSession.user.user_metadata?.name || 'User',
+          id: currentSession.user.id
+        });
+        handleRefresh();
+      }
+    });
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
+  }, [router]);
 
   // ── Auth ─────────────────────────────────────────────────────────────────
-  const login = useCallback((email, password) => {
-    if (email === DUMMY_USER.email && password === DUMMY_USER.password) {
-      const s = { email, name: DUMMY_USER.name, loginTime: new Date().toISOString() };
-      localStorage.setItem('wa_session', JSON.stringify(s));
-      setSession(s);
-      return true;
-    }
-    return false;
-  }, []);
+  // Note: Actual login logic is managed by /app/(auth)/login
+  const login = () => { /* No-op, now handled in login page */ return false; };
 
-  const logout = useCallback(() => {
-    localStorage.removeItem('wa_session');
-    setSession(null);
-  }, []);
+  const logout = useCallback(async () => {
+    try {
+      await supabase.auth.signOut();
+      setSession(null);
+      router.push('/login');
+    } catch (e) {
+      console.error('Supabase signout error:', e);
+    }
+  }, [router, supabase.auth]);
 
   // ── Toast ─────────────────────────────────────────────────────────────────
   const addToast = useCallback((message, type = 'success') => {
@@ -86,106 +94,77 @@ export function AppProvider({ children }) {
   }, []);
 
   // ── Refresh ───────────────────────────────────────────────────────────────
-  const handleRefresh = useCallback(() => {
+  const handleRefresh = useCallback(async () => {
     setRefreshing(true);
-    setTimeout(() => {
-      setLastSync(new Date());
+    try {
+      const res = await fetch('/api/stats');
+      if (res.ok) {
+        const payload = await res.json();
+        if (payload.stats) setStats(payload.stats);
+        if (payload.credits) {
+          // Fetch templates separately as they come from Meta API
+          let templates = [];
+          try {
+            const tRes = await fetch('/api/templates');
+            if (tRes.ok) {
+              const tData = await tRes.json();
+              // Normalize templates with default stats
+              templates = (tData.templates || []).map(t => ({
+                id: t.name,
+                name: t.name,
+                category: t.category || 'marketing',
+                status: t.status || 'approved',
+                body: t.body || '',
+                sent: 0,
+                cost: 0,
+                delivered: 0,
+                read: 0,
+                replied: 0,
+                failed: 0,
+                deliveryRate: 0,
+                readRate: 0,
+                replyRate: 0,
+                ...t
+              }));
+            }
+          } catch (te) {
+            console.error('Failed to fetch templates:', te);
+          }
+
+          setData(prev => ({ 
+            ...prev, 
+            credits: payload.credits, 
+            hourly: payload.hourly || [], 
+            messages: payload.messages || [],
+            templates: templates
+          }));
+        }
+        setLastSync(new Date());
+      } else if (res.status === 401) {
+        // Handle unauthorized inside refresh
+        router.push('/login');
+      }
+    } catch (e) {
+      console.error('Failed to fetch stats:', e);
+      addToast('Failed to fetch latest stats', 'error');
+    } finally {
       setRefreshing(false);
-      addToast('Data refreshed successfully', 'success');
-    }, 1200);
-  }, [addToast]);
+    }
+  }, [addToast, router]);
 
-  // ── Send message (deducts credit) ─────────────────────────────────────────
+  // ── Legacy Send Message compatibility ─────────────────────────────────────────
   const sendMessage = useCallback((contactId, text) => {
-    if (data.credits.remaining <= 0) {
-      addToast('Insufficient credits! Please top up.', 'error');
-      return false;
-    }
-    const contact = data.contacts.find(c => c.id === contactId);
-    const newMsg = {
-      id: `M${Date.now()}`,
-      contactId, contactName: contact?.name || 'Unknown',
-      contactPhone: contact?.phone || '',
-      templateId: 'MANUAL', templateName: 'Direct Message',
-      status: 'sending', text,
-      hasReply: false, replyText: null,
-      timestamp: new Date().toISOString(),
-      hour: new Date().getHours(),
-      creditCost: 1, type: 'text',
-    };
-
-    // Update conversation
-    setData(prev => {
-      const convos = prev.conversations.map(c => {
-        if (c.contactId !== contactId) return c;
-        return { ...c, messages: [...c.messages, { id: newMsg.id, direction: 'out', text, timestamp: newMsg.timestamp, status: 'sending' }] };
-      });
-      const credits = { ...prev.credits, used: prev.credits.used + 1, remaining: prev.credits.remaining - 1 };
-      const updated = { ...prev, conversations: convos, credits };
-      localStorage.setItem('wa_conversations', JSON.stringify(convos));
-      localStorage.setItem('wa_credits', JSON.stringify(credits));
-      return updated;
-    });
-
-    // Simulate delivery
-    setTimeout(() => {
-      setData(prev => {
-        const convos = prev.conversations.map(c => {
-          if (c.contactId !== contactId) return c;
-          return { ...c, messages: c.messages.map(m => m.id === newMsg.id ? { ...m, status: 'delivered' } : m) };
-        });
-        localStorage.setItem('wa_conversations', JSON.stringify(convos));
-        return { ...prev, conversations: convos };
-      });
-    }, 1500);
-
-    // Simulate auto-reply
-    if (Math.random() < 0.5) {
-      const replies = ['Thanks!', 'OK got it', 'Sure', 'Please call me', 'Interested!', 'Not now'];
-      setTimeout(() => {
-        const replyText = replies[Math.floor(Math.random() * replies.length)];
-        const replyMsg = { id: `R${Date.now()}`, direction: 'in', text: replyText, timestamp: new Date().toISOString(), status: 'read' };
-        setData(prev => {
-          const convos = prev.conversations.map(c => {
-            if (c.contactId !== contactId) return c;
-            return { ...c, messages: [...c.messages, replyMsg] };
-          });
-          localStorage.setItem('wa_conversations', JSON.stringify(convos));
-          return { ...prev, conversations: convos };
-        });
-        addToast(`New reply from ${contact?.name}`, 'info');
-      }, 2000 + Math.random() * 3000);
-    }
-
-    addToast('Message sent!', 'success');
-    return true;
-  }, [data, addToast]);
-
-  // ── Stats ─────────────────────────────────────────────────────────────────
-  const stats = {
-    sent:      data.messages.filter(m => ['sent','delivered','read'].includes(m.status)).length,
-    delivered: data.messages.filter(m => ['delivered','read'].includes(m.status)).length,
-    read:      data.messages.filter(m => m.status === 'read').length,
-    failed:    data.messages.filter(m => m.status === 'failed').length,
-    queue:     data.messages.filter(m => m.status === 'queue').length,
-    replies:   data.messages.filter(m => m.hasReply).length,
-    total:     data.messages.length,
-  };
-
-  // ── Update Contact State ────────────────────────────────────────────────
-  const updateContact = useCallback((contactId, updates) => {
-    setData(prev => {
-      const contacts = prev.contacts.map(c => c.id === contactId ? { ...c, ...updates } : c);
-      const updated = { ...prev, contacts };
-      localStorage.setItem('wa_contacts', JSON.stringify(contacts));
-      return updated;
-    });
-    const msg = updates.isBlocked !== undefined ? (updates.isBlocked ? 'Contact blocked' : 'Contact unblocked') 
-              : updates.isMuted !== undefined ? (updates.isMuted ? 'Notifications muted' : 'Notifications unmuted')
-              : updates.isArchived !== undefined ? (updates.isArchived ? 'Chat archived' : 'Chat unarchived')
-              : 'Contact updated';
-    addToast(msg, 'info');
+    addToast('Use the Tracker or Inbox interface to send real-time messages', 'info');
+    return false;
   }, [addToast]);
+
+  const updateContact = useCallback((contactId, updates) => {
+    addToast('Not implemented in prototype mode', 'info');
+  }, [addToast]);
+
+  if (isInitializing) {
+    return <div className="h-screen w-screen flex items-center justify-center bg-[var(--color-wa-bg)]">Loading...</div>;
+  }
 
   return (
     <AppContext.Provider value={{
@@ -203,6 +182,3 @@ export function AppProvider({ children }) {
 }
 
 export const useApp = () => useContext(AppContext);
-
-
-

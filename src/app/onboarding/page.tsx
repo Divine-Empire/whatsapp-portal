@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import {
   MessageCircle,
   Key,
@@ -15,6 +16,7 @@ import {
   ExternalLink,
   AlertCircle,
   CheckCircle2,
+  ChevronLeft,
 } from 'lucide-react';
 
 export default function OnboardingPage() {
@@ -134,78 +136,90 @@ export default function OnboardingPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#111b21] flex flex-col items-center py-12 px-4">
+    <div className="min-h-screen bg-[var(--color-wa-bg)] flex flex-col items-center py-10 px-4 animate-fadeIn">
       {/* Header */}
-      <div className="flex flex-col items-center mb-8">
-        <div className="w-14 h-14 bg-[#00a884] rounded-2xl flex items-center justify-center mb-3 shadow-lg shadow-[#00a884]/20">
-          <MessageCircle size={28} className="text-white" />
+      <div className="flex flex-col items-center mb-10 relative w-full max-w-2xl">
+        <Link 
+          href="/dashboard"
+          className="absolute left-0 top-1 text-[var(--color-wa-muted)] hover:text-[var(--color-wa-text)] flex items-center gap-1.5 text-[13px] font-medium transition-colors"
+        >
+          <ChevronLeft size={16} />
+          Back to Dashboard
+        </Link>
+        <div className="w-16 h-16 bg-[#25D366] rounded-[22px] flex items-center justify-center mb-4 shadow-lg shadow-[#25D366]/20">
+          <MessageCircle size={32} className="text-white fill-white/10" />
         </div>
-        <h1 className="text-2xl font-light text-[#e9edef]">
-          {existingConfig ? 'Update Configuration' : 'Setup Your WhatsApp'}
+        <h1 className="text-[26px] font-bold text-[var(--color-wa-text)] tracking-tight">
+          {existingConfig ? 'Update Account Config' : 'Project Onboarding'}
         </h1>
-        <p className="text-[#8696a0] text-sm mt-1 text-center max-w-md">
-          Enter your Meta Business credentials to connect your WhatsApp Business account
+        <p className="text-[var(--color-wa-muted)] text-[14px] mt-1.5 text-center max-w-md font-medium">
+          Connect your Meta Business credentials to enable real messaging features
         </p>
       </div>
 
       <div className="w-full max-w-2xl space-y-6">
         {/* Credentials Form */}
-        <form onSubmit={handleSave} className="bg-[#182229] rounded-2xl p-8">
+        <form onSubmit={handleSave} className="card p-8 md:p-10">
+          <h2 className="text-[17px] font-bold text-[var(--color-wa-text)] mb-6 flex items-center gap-2">
+            <Key size={18} className="text-[#25D366]" />
+            Meta API Credentials
+          </h2>
+
           {error && (
-            <div className="bg-[#ff5c5c]/10 border border-[#ff5c5c]/20 text-[#ff5c5c] text-sm px-4 py-3 rounded-lg mb-5 flex items-center gap-2">
+            <div className="bg-red-50 border border-red-100 text-red-600 text-[13px] px-4 py-3 rounded-xl mb-6 flex items-center gap-2 font-medium">
               <AlertCircle size={16} /> {error}
             </div>
           )}
 
-          <div className="space-y-5">
-            {/* Phone Number ID */}
-            <div>
-              <label className="flex items-center gap-2 text-[#8696a0] text-xs mb-1.5 uppercase tracking-wider">
-                <Phone size={14} /> WhatsApp Phone Number ID
-              </label>
-              <input
-                type="text"
-                value={phoneNumberId}
-                onChange={(e) => setPhoneNumberId(e.target.value)}
-                required
-                placeholder="e.g. 109876543210"
-                className="w-full bg-[#2a3942] text-[#e9edef] px-4 py-3 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#00a884]/50 placeholder:text-[#8696a0]/50 transition-all"
-              />
-            </div>
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              {/* Phone Number ID */}
+              <div>
+                <label className="flex items-center gap-2 text-[var(--color-wa-muted)] text-[11px] font-bold uppercase tracking-[0.05em] mb-2">
+                  <Phone size={14} /> Phone Number ID
+                </label>
+                <input
+                  type="text"
+                  value={phoneNumberId}
+                  onChange={(e) => setPhoneNumberId(e.target.value)}
+                  required
+                  placeholder="e.g. 109876543210"
+                />
+              </div>
 
-            {/* WABA ID */}
-            <div>
-              <label className="flex items-center gap-2 text-[#8696a0] text-xs mb-1.5 uppercase tracking-wider">
-                <Building2 size={14} /> Business Account ID (WABA ID)
-              </label>
-              <input
-                type="text"
-                value={wabaId}
-                onChange={(e) => setWabaId(e.target.value)}
-                required
-                placeholder="e.g. 102938475610"
-                className="w-full bg-[#2a3942] text-[#e9edef] px-4 py-3 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#00a884]/50 placeholder:text-[#8696a0]/50 transition-all"
-              />
+              {/* WABA ID */}
+              <div>
+                <label className="flex items-center gap-2 text-[var(--color-wa-muted)] text-[11px] font-bold uppercase tracking-[0.05em] mb-2">
+                  <Building2 size={14} /> WhatsApp Business ID
+                </label>
+                <input
+                  type="text"
+                  value={wabaId}
+                  onChange={(e) => setWabaId(e.target.value)}
+                  required
+                  placeholder="e.g. 102938475610"
+                />
+              </div>
             </div>
 
             {/* Access Token */}
             <div>
-              <label className="flex items-center gap-2 text-[#8696a0] text-xs mb-1.5 uppercase tracking-wider">
+              <label className="flex items-center gap-2 text-[var(--color-wa-muted)] text-[11px] font-bold uppercase tracking-[0.05em] mb-2">
                 <Key size={14} /> Permanent Access Token
               </label>
               <textarea
                 value={accessToken}
                 onChange={(e) => setAccessToken(e.target.value)}
                 required
-                placeholder="System User Token from Meta Business Manager"
-                rows={3}
-                className="w-full bg-[#2a3942] text-[#e9edef] px-4 py-3 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#00a884]/50 placeholder:text-[#8696a0]/50 resize-none font-mono transition-all"
+                placeholder="Paste your System User Access Token here..."
+                rows={4}
+                className="font-mono text-[13px] leading-relaxed"
               />
             </div>
 
             {/* Webhook Verify Token */}
             <div>
-              <label className="flex items-center gap-2 text-[#8696a0] text-xs mb-1.5 uppercase tracking-wider">
+              <label className="flex items-center gap-2 text-[var(--color-wa-muted)] text-[11px] font-bold uppercase tracking-[0.05em] mb-2">
                 <Shield size={14} /> Webhook Verify Token
               </label>
               <input
@@ -213,28 +227,26 @@ export default function OnboardingPage() {
                 value={webhookVerifyToken}
                 onChange={(e) => setWebhookVerifyToken(e.target.value)}
                 required
-                placeholder="Create a secret string (any value)"
-                className="w-full bg-[#2a3942] text-[#e9edef] px-4 py-3 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#00a884]/50 placeholder:text-[#8696a0]/50 transition-all"
+                placeholder="Create a secret string (e.g. mysecretv3)"
               />
-              <p className="text-[#8696a0] text-xs mt-1.5">
-                Create any secret string. You&apos;ll paste this same string in Meta Dashboard → Webhooks.
+              <p className="text-[var(--color-wa-muted)] text-[11px] mt-2 font-medium">
+                Tip: Create any secure string. You must use the same string in Meta Developer Portal.
               </p>
             </div>
           </div>
 
-          {/* Action Buttons */}
-          <div className="flex items-center gap-3 mt-6">
+          <div className="flex flex-col sm:flex-row items-center gap-4 mt-8 pt-6 border-t border-[var(--color-wa-border)]">
             <button
               type="submit"
               disabled={loading}
-              className="flex-1 px-6 py-2.5 bg-[#00a884] text-[#111b21] rounded-lg font-semibold text-sm hover:bg-[#00a884]/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="btn-green w-full sm:flex-1 py-3 text-[14px] flex items-center justify-center gap-2"
             >
               {loading ? (
                 <>
                   <Loader2 size={18} className="animate-spin" /> Saving...
                 </>
               ) : (
-                existingConfig ? 'Update & Continue' : 'Save & Continue'
+                existingConfig ? 'Update Account' : 'Initialize Account'
               )}
             </button>
 
@@ -242,15 +254,15 @@ export default function OnboardingPage() {
               type="button"
               onClick={handleTestConnection}
               disabled={testing || !accessToken || !phoneNumberId}
-              className="px-5 py-2.5 rounded-lg border border-[#00a884]/30 text-[#00a884] text-sm font-medium hover:bg-[#00a884]/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="btn-outline w-full sm:w-auto px-6 py-3 text-[14px] flex items-center justify-center gap-2 font-semibold"
             >
-              {testing ? <Loader2 size={16} className="animate-spin" /> : <Shield size={16} />}
+              {testing ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />}
               Test Connection
             </button>
           </div>
 
           {testResult && (
-            <div className={`mt-3 text-sm flex items-center gap-1.5 ${testResult.valid ? 'text-[#00a884]' : 'text-[#ff5c5c]'}`}>
+            <div className={`mt-4 px-4 py-2.5 rounded-lg text-[13px] font-semibold flex items-center gap-2 ${testResult.valid ? 'bg-green-50 text-[#128C7E]' : 'bg-red-50 text-red-600'}`}>
               {testResult.valid ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
               {testResult.message}
             </div>
@@ -259,41 +271,60 @@ export default function OnboardingPage() {
 
         {/* Webhook URL Card */}
         {userId && (
-          <div className="bg-[#182229] rounded-2xl p-6">
-            <h3 className="text-[#e9edef] text-sm font-medium mb-2 flex items-center gap-2">
-              <ExternalLink size={16} className="text-[#00a884]" />
-              Your Webhook URL
-            </h3>
-            <p className="text-[#8696a0] text-xs mb-3">
-              Copy this URL and paste it in Meta Dashboard → WhatsApp → Configuration → Webhook URL
+          <div className="card p-6 border-l-4 border-l-[#25D366]">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-[var(--color-wa-text)] text-[15px] font-bold flex items-center gap-2">
+                <ExternalLink size={18} className="text-[#25D366]" />
+                Webhook Configuration
+              </h3>
+              <div className="badge badge-green">Required</div>
+            </div>
+            
+            <p className="text-[var(--color-wa-muted)] text-[13px] mb-4 font-medium leading-relaxed">
+              Copy this callback URL into Meta Dashboard → WhatsApp → Configuration → Webhook URL:
             </p>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 bg-[#0b141a] text-[#00a884] px-4 py-3 rounded-lg text-xs font-mono truncate">
+            
+            <div className="flex items-center gap-2 bg-[var(--color-wa-bg)] p-3 rounded-xl border border-[var(--color-wa-border)]">
+              <code className="flex-1 text-[var(--color-wa-teal)] text-[12px] font-mono truncate font-bold">
                 {webhookUrl}
               </code>
               <button
                 onClick={handleCopyWebhookUrl}
-                className="shrink-0 p-3 rounded-lg bg-[#2a3942] hover:bg-[#3a4f5b] transition-colors text-[#8696a0] hover:text-[#e9edef]"
+                className="shrink-0 p-2.5 rounded-lg bg-[var(--color-wa-surface)] hover:bg-[var(--color-wa-bg)] border border-[var(--color-wa-border)] transition-all text-[var(--color-wa-muted)] hover:text-[var(--color-wa-text)] shadow-sm"
+                title="Copy to clipboard"
               >
-                {copied ? <Check size={16} className="text-[#00a884]" /> : <Copy size={16} />}
+                {copied ? <Check size={16} className="text-[#25D366]" /> : <Copy size={16} />}
               </button>
             </div>
           </div>
         )}
 
         {/* Instructions */}
-        <div className="bg-[#182229] rounded-2xl p-6">
-          <h3 className="text-[#e9edef] text-sm font-medium mb-3">Quick Setup Guide</h3>
-          <ol className="list-decimal list-inside text-[#8696a0] text-sm space-y-2">
-            <li>Go to <a href="https://developers.facebook.com" target="_blank" rel="noreferrer" className="text-[#00a884] hover:underline">developers.facebook.com</a> and create a Meta App</li>
-            <li>Add the <strong className="text-[#e9edef]">WhatsApp</strong> product to your app</li>
-            <li>Get your Phone Number ID from API Setup</li>
-            <li>Generate a <strong className="text-[#e9edef]">System User Token</strong> (permanent) via Business Manager</li>
-            <li>Paste the Webhook URL above into Webhooks → Callback URL</li>
-            <li>Subscribe to: <code className="text-[#00a884]">messages</code>, <code className="text-[#00a884]">message_deliveries</code>, <code className="text-[#00a884]">message_reads</code></li>
-          </ol>
+        <div className="card p-6 md:p-8">
+          <h3 className="text-[15px] font-bold text-[var(--color-wa-text)] mb-5">Quick Setup Guide</h3>
+          <div className="space-y-4">
+            {[
+              { step: 1, text: 'Go to developers.facebook.com and create a Meta App' },
+              { step: 2, text: 'Add the WhatsApp product to your app from dashboard' },
+              { step: 3, text: 'Get your Phone Number ID from API Setup section' },
+              { step: 4, text: 'Generate a Permanent System User Token via Business Manager' },
+              { step: 5, text: 'Configure the Webhook URL above in Meta Configuration' },
+              { step: 6, text: 'Subscribe to messages, message_deliveries, and message_reads' },
+            ].map((s) => (
+              <div key={s.step} className="flex gap-4 items-start">
+                <div className="w-6 h-6 rounded-full bg-[var(--color-wa-bg)] flex-shrink-0 flex items-center justify-center text-[var(--color-wa-teal)] text-[11px] font-bold border border-[var(--color-wa-border)]">
+                  {s.step}
+                </div>
+                <p className="text-[13px] text-[var(--color-wa-muted)] font-medium pt-0.5">{s.text}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
+      
+      <footer className="mt-12 text-center text-[12px] text-[var(--color-wa-muted)] font-medium">
+        Powered by <span className="text-[#25D366] font-bold">Botivate</span> WhatsApp System
+      </footer>
     </div>
   );
 }

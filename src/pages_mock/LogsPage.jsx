@@ -1,28 +1,51 @@
 'use client';
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { StatusBadge } from '../components/ui/Cards';
-import { Search, Filter, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Filter, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 
 const STATUS_OPTS = ['all', 'sent', 'delivered', 'read', 'failed', 'queue'];
 const PAGE_SIZES  = [15, 25, 50];
 
 export default function LogsPage() {
-  const { data } = useApp();
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  
   const [search,     setSearch]     = useState('');
   const [statusFilt, setStatusFilt] = useState('all');
   const [page,       setPage]       = useState(1);
   const [pageSize,   setPageSize]   = useState(25);
 
+  useEffect(() => {
+    async function fetchLogs() {
+      try {
+        const res = await fetch('/api/logs');
+        const data = await res.json();
+        if (data.success) {
+          setLogs(data.logs);
+        }
+      } catch (err) {
+        console.error('Failed to fetch logs:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchLogs();
+  }, []);
+
   const filtered = useMemo(() => {
-    return data.messages.filter(m => {
-      const matchSearch = m.contactName.toLowerCase().includes(search.toLowerCase()) ||
-                          m.templateName.toLowerCase().includes(search.toLowerCase()) ||
-                          m.contactPhone.includes(search);
+    return logs.filter(m => {
+      const contactName = m.contactName || '';
+      const templateName = m.templateName || '';
+      const contactPhone = m.contactPhone || '';
+      
+      const matchSearch = contactName.toLowerCase().includes(search.toLowerCase()) ||
+                          templateName.toLowerCase().includes(search.toLowerCase()) ||
+                          contactPhone.includes(search);
       const matchStatus = statusFilt === 'all' || m.status === statusFilt;
       return matchSearch && matchStatus;
     });
-  }, [data.messages, search, statusFilt]);
+  }, [logs, search, statusFilt]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const paged      = filtered.slice((page - 1) * pageSize, page * pageSize);
@@ -31,6 +54,14 @@ export default function LogsPage() {
 
   const handleSearch = (v) => { setSearch(v); setPage(1); };
   const handleStatus = (v) => { setStatusFilt(v); setPage(1); };
+
+  if (loading) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <Loader2 className="animate-spin text-[#00a884]" size={30} />
+      </div>
+    );
+  }
 
   return (
     <div className="h-full flex flex-col overflow-hidden animate-fadeIn bg-[var(--color-wa-bg)]">
@@ -43,7 +74,7 @@ export default function LogsPage() {
               value={search}
               onChange={e => handleSearch(e.target.value)}
               placeholder="Search logs…"
-              className="w-full bg-[var(--color-wa-surface)] border border-[var(--color-wa-border)] rounded-lg py-1.5 pl-8 pr-3 text-[13px] outline-none focus:border-[#25D366] transition-all"
+              className="w-full bg-[var(--color-wa-surface)] border border-[var(--color-wa-border)] rounded-lg !py-2 !pl-10 pr-3 text-[13px] outline-none focus:border-[#25D366] transition-all"
             />
           </div>
           <div className="flex items-center gap-1.5 flex-wrap">
@@ -66,7 +97,6 @@ export default function LogsPage() {
       <div className="flex-1 overflow-hidden">
         <div className="h-full flex flex-col overflow-hidden bg-[var(--color-wa-surface)] border-t-2 border-t-[#25D366] border-x border-b border-[var(--color-wa-border)]">
 
-          {/* scrollable body */}
           {/* Desktop View (Table) */}
           <div className="hidden md:block flex-1 overflow-auto no-scrollbar">
             <table className="w-full min-w-[700px] border-separate border-spacing-0">
@@ -94,8 +124,8 @@ export default function LogsPage() {
                     <td className="px-4 py-3 text-[11px] text-[var(--color-wa-muted)]">{m.contactPhone}</td>
                     <td className="px-4 py-3 text-[12px] text-[var(--color-wa-text)]">{m.templateName}</td>
                     <td className="px-4 py-3"><StatusBadge status={m.status} /></td>
-                    <td className="px-4 py-3 text-[12px] font-bold text-[var(--color-wa-green)]">₹{m.cost?.toFixed(2)}</td>
-                    <td className="px-4 py-3 capitalize text-[11px] text-[var(--color-wa-muted)]">{m.type}</td>
+                    <td className="px-4 py-3 text-[12px] font-bold text-[var(--color-wa-green)]">₹{(m.cost || 1).toFixed(2)}</td>
+                    <td className="px-4 py-3 capitalize text-[11px] text-[var(--color-wa-muted)]">{m.type || 'text'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -124,13 +154,13 @@ export default function LogsPage() {
                   </div>
                   <div className="text-right">
                     <p className="text-[10px] text-[var(--color-wa-muted)] uppercase font-semibold">Cost</p>
-                    <p className="text-[12px] font-bold text-[var(--color-wa-green)]">₹{m.cost?.toFixed(2)}</p>
+                    <p className="text-[12px] font-bold text-[var(--color-wa-green)]">₹{(m.cost || 1).toFixed(2)}</p>
                   </div>
                 </div>
 
                 <div className="flex items-center justify-between mt-3 pt-2 border-t border-[var(--color-wa-border)] border-dashed">
                   <span className="text-[10px] text-[var(--color-wa-muted)] font-medium bg-[var(--color-wa-bg)] px-2 py-0.5 rounded-full capitalize">
-                    {m.type}
+                    {m.type || 'text'}
                   </span>
                   <span className="text-[11px] text-[var(--color-wa-muted)]">
                     {new Date(m.timestamp).toLocaleString('en-IN', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })}
@@ -174,7 +204,7 @@ export default function LogsPage() {
                   const pg = Math.max(1, Math.min(page - 2, totalPages - 4)) + i;
                   if (pg > totalPages) return null;
                   return (
-                    <button
+                     <button
                       key={pg}
                       onClick={() => setPage(pg)}
                       className={`w-7 h-7 rounded text-[11px] md:text-[12px] font-semibold border transition-colors
@@ -190,10 +220,8 @@ export default function LogsPage() {
               </div>
             </div>
           </div>
-
         </div>
       </div>
     </div>
   );
 }
-

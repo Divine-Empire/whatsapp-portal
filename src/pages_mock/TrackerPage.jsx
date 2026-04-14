@@ -1,11 +1,11 @@
 'use client';
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useApp } from '../context/AppContext';
 import { StatusBadge, ProgressBar, RatePill } from '../components/ui/Cards';
 import { Search, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Eye, X } from 'lucide-react';
 
 const PAGE_SIZES = [10, 15, 25, 50];
-let PAGE_SIZE = 15;
 
 export default function TrackerPage() {
   const { data } = useApp();
@@ -15,7 +15,11 @@ export default function TrackerPage() {
   const [sortDir,      setSortDir]  = useState('desc');
   const [page,         setPage]     = useState(1);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
+  const [mounted, setMounted] = useState(false);
 
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const handleSort = col => {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -23,8 +27,8 @@ export default function TrackerPage() {
     setPage(1);
   };
 
-  const filtered = useMemo(() => data.templates
-    .filter(t => t.name.toLowerCase().includes(search.toLowerCase()))
+  const filtered = useMemo(() => (data.templates || [])
+    .filter(t => (t.name || '').toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => {
       const va = typeof a[sortCol] === 'number' ? a[sortCol] : 0;
       const vb = typeof b[sortCol] === 'number' ? b[sortCol] : 0;
@@ -44,7 +48,6 @@ export default function TrackerPage() {
       : <ChevronDown size={11} className="text-[#25D366] ml-0.5" />;
   };
 
-  /* sortable th — gray header */
   const STH = ({ label, col }) => (
     <th
       onClick={() => handleSort(col)}
@@ -54,7 +57,6 @@ export default function TrackerPage() {
     </th>
   );
 
-  /* fixed th — gray header */
   const FTH = ({ label, cls = '' }) => (
     <th className={`px-4 py-2.5 text-left text-[11px] font-bold text-[#444] uppercase tracking-wider bg-[#F0F2F5] border-b border-[#E2E5E9] whitespace-nowrap ${cls}`}>
       {label}
@@ -64,7 +66,6 @@ export default function TrackerPage() {
   return (
     <div className="h-full flex flex-col overflow-hidden animate-fadeIn bg-[var(--color-wa-bg)]">
 
-      {/* ── Filter Bar ── */}
       <div className="px-4 py-1.5 flex items-center bg-[var(--color-wa-bg)]">
         <div className="relative">
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--color-wa-muted)] pointer-events-none" />
@@ -72,17 +73,14 @@ export default function TrackerPage() {
             value={search}
             onChange={e => { setSearch(e.target.value); setPage(1); }}
             placeholder="Search templates…"
-            className="bg-[var(--color-wa-surface)] border border-[var(--color-wa-border)] rounded-lg py-1.5 pl-8 pr-3 text-[13px] w-56 outline-none focus:border-[#25D366] transition-all"
+            className="bg-[var(--color-wa-surface)] border border-[var(--color-wa-border)] rounded-lg !py-2 !pl-10 pr-3 text-[13px] w-56 outline-none focus:border-[#25D366] transition-all"
           />
         </div>
       </div>
 
-      {/* ── Table Area ── */}
       <div className="flex-1 overflow-hidden">
         <div className="h-full flex flex-col overflow-hidden bg-[var(--color-wa-surface)] border-t-2 border-t-[#25D366] border-x border-b border-[var(--color-wa-border)]">
 
-          {/* scrollable body */}
-          {/* Desktop View (Table) */}
           <div className="hidden md:block flex-1 overflow-auto no-scrollbar">
             <table className="w-full min-w-[1000px] border-separate border-spacing-0">
               <thead className="sticky top-0 z-10 shadow-sm">
@@ -109,61 +107,40 @@ export default function TrackerPage() {
                     onClick={() => setSelectedTemplate(t)}
                     className="table-row transition cursor-pointer group"
                   >
-                    {/* Template */}
                     <td className="px-4 py-3">
                       <p className="text-[13px] font-semibold text-[var(--color-wa-text)] group-hover:text-[#25D366] transition-colors whitespace-nowrap">
                         {t.name}
                       </p>
                     </td>
-
-                    {/* Category */}
                     <td className="px-4 py-3">
                       <span className="text-[10px] font-bold uppercase tracking-wide py-0.5 px-2 rounded-md bg-[var(--color-wa-bg)] text-[var(--color-wa-muted)] border border-[var(--color-wa-border)] whitespace-nowrap">
                         {t.category}
                       </span>
                     </td>
-
-                    {/* Status */}
                     <td className="px-4 py-3"><StatusBadge status={t.status} /></td>
-
-                    {/* Sent */}
                     <td className="px-4 py-3 text-[13px] font-semibold text-[var(--color-wa-text)] tabular-nums whitespace-nowrap">
-                      {t.sent.toLocaleString()}
+                      {(t.sent || 0).toLocaleString()}
                     </td>
-
-                    {/* Cost */}
                     <td className="px-4 py-3 text-[13px] font-bold text-[var(--color-wa-green)] tabular-nums whitespace-nowrap">
-                      ₹{t.cost?.toFixed(2)}
+                      ₹{(t.cost || 0).toFixed(2)}
                     </td>
-
-                    {/* Delivered */}
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <span className="text-[12px] text-[var(--color-wa-text)] tabular-nums w-8 shrink-0">{t.delivered}</span>
-                        <div className="w-14 shrink-0"><ProgressBar value={t.delivered} max={t.sent} color="#25D366" /></div>
+                        <span className="text-[12px] text-[var(--color-wa-text)] tabular-nums w-8 shrink-0">{t.delivered || 0}</span>
+                        <div className="w-14 shrink-0"><ProgressBar value={t.delivered || 0} max={t.sent || 1} color="#25D366" /></div>
                       </div>
                     </td>
-
-                    {/* Read */}
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <span className="text-[12px] text-[var(--color-wa-text)] tabular-nums w-8 shrink-0">{t.read}</span>
-                        <div className="w-14 shrink-0"><ProgressBar value={t.read} max={t.sent} color="#3b82f6" /></div>
+                        <span className="text-[12px] text-[var(--color-wa-text)] tabular-nums w-8 shrink-0">{t.read || 0}</span>
+                        <div className="w-14 shrink-0"><ProgressBar value={t.read || 0} max={t.sent || 1} color="#3b82f6" /></div>
                       </div>
                     </td>
-
-                    {/* Replied */}
-                    <td className="px-4 py-3 text-[13px] font-semibold text-[#8b5cf6] tabular-nums">{t.replied}</td>
-
-                    {/* Failed */}
-                    <td className="px-4 py-3 text-[13px] font-semibold text-red-500 tabular-nums">{t.failed}</td>
-
-                    {/* Rate pills */}
-                    <td className="px-4 py-3"><RatePill value={t.deliveryRate} /></td>
-                    <td className="px-4 py-3"><RatePill value={t.readRate} /></td>
-                    <td className="px-4 py-3"><RatePill value={t.replyRate} base={20} /></td>
-
-                    {/* View */}
+                    <td className="px-4 py-3 text-[13px] font-semibold text-[#8b5cf6] tabular-nums">{t.replied || 0}</td>
+                    <td className="px-4 py-3 text-[13px] font-semibold text-red-500 tabular-nums">{t.failed || 0}</td>
+                    <td className="px-4 py-3"><RatePill value={t.deliveryRate || 0} /></td>
+                    <td className="px-4 py-3"><RatePill value={t.readRate || 0} /></td>
+                    <td className="px-4 py-3"><RatePill value={t.replyRate || 0} base={20} /></td>
                     <td className="px-4 py-3 text-center">
                       <button
                         onClick={e => { e.stopPropagation(); setSelectedTemplate(t); }}
@@ -178,7 +155,6 @@ export default function TrackerPage() {
             </table>
           </div>
 
-          {/* Mobile View (Card List) */}
           <div className="md:hidden flex-1 overflow-auto no-scrollbar bg-[#F8F9FA] p-3 space-y-3">
             {paged.map(t => (
               <div
@@ -199,24 +175,24 @@ export default function TrackerPage() {
                 <div className="grid grid-cols-2 gap-y-3 gap-x-4 border-t border-[var(--color-wa-border)] pt-3">
                   <div className="space-y-0.5">
                     <p className="text-[10px] text-[var(--color-wa-muted)] uppercase font-semibold">Sent</p>
-                    <p className="text-[13px] font-bold text-[var(--color-wa-text)]">{t.sent.toLocaleString()}</p>
+                    <p className="text-[13px] font-bold text-[var(--color-wa-text)]">{(t.sent || 0).toLocaleString()}</p>
                   </div>
                   <div className="space-y-0.5">
                     <p className="text-[10px] text-[var(--color-wa-muted)] uppercase font-semibold">Cost</p>
-                    <p className="text-[13px] font-bold text-[var(--color-wa-green)]">₹{t.cost?.toFixed(2)}</p>
+                    <p className="text-[13px] font-bold text-[var(--color-wa-green)]">₹{(t.cost || 0).toFixed(2)}</p>
                   </div>
                   <div className="space-y-0.5">
                     <p className="text-[10px] text-[var(--color-wa-muted)] uppercase font-semibold">Delivery %</p>
                     <div className="flex items-center gap-2">
-                       <p className="text-[13px] font-bold text-[var(--color-wa-text)]">{t.deliveryRate}%</p>
-                       <div className="w-12"><ProgressBar value={t.deliveryRate} max={100} color="#25D366" /></div>
+                       <p className="text-[13px] font-bold text-[var(--color-wa-text)]">{t.deliveryRate || 0}%</p>
+                       <div className="w-12"><ProgressBar value={t.deliveryRate || 0} max={100} color="#25D366" /></div>
                     </div>
                   </div>
                   <div className="space-y-0.5">
                     <p className="text-[10px] text-[var(--color-wa-muted)] uppercase font-semibold">Read %</p>
                     <div className="flex items-center gap-2">
-                       <p className="text-[13px] font-bold text-[var(--color-wa-text)]">{t.readRate}%</p>
-                       <div className="w-12"><ProgressBar value={t.readRate} max={100} color="#3b82f6" /></div>
+                       <p className="text-[13px] font-bold text-[var(--color-wa-text)]">{t.readRate || 0}%</p>
+                       <div className="w-12"><ProgressBar value={t.readRate || 0} max={100} color="#3b82f6" /></div>
                     </div>
                   </div>
                 </div>
@@ -225,15 +201,15 @@ export default function TrackerPage() {
                   <div className="flex gap-3">
                     <div className="text-center">
                       <p className="text-[9px] text-[var(--color-wa-muted)] uppercase">Read</p>
-                      <p className="text-[12px] font-semibold">{t.read}</p>
+                      <p className="text-[12px] font-semibold">{t.read || 0}</p>
                     </div>
                     <div className="text-center">
                       <p className="text-[9px] text-[var(--color-wa-muted)] uppercase">Replies</p>
-                      <p className="text-[12px] font-semibold text-[#8b5cf6]">{t.replied}</p>
+                      <p className="text-[12px] font-semibold text-[#8b5cf6]">{t.replied || 0}</p>
                     </div>
                     <div className="text-center">
                       <p className="text-[9px] text-[var(--color-wa-muted)] uppercase">Failed</p>
-                      <p className="text-[12px] font-semibold text-red-500">{t.failed}</p>
+                      <p className="text-[12px] font-semibold text-red-500">{t.failed || 0}</p>
                     </div>
                   </div>
                   <Eye size={16} className="text-[var(--color-wa-muted)] opacity-50" />
@@ -248,7 +224,6 @@ export default function TrackerPage() {
             </div>
           )}
 
-          {/* ── Fixed Footer inside card ── */}
           <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 px-3 md:px-4 py-2 bg-[var(--color-wa-surface)] border-t border-[var(--color-wa-border)] text-[11px] md:text-[12px] text-[var(--color-wa-muted)]">
             <span className="whitespace-nowrap">
               Showing&nbsp;<strong className="text-[var(--color-wa-text)] font-semibold">{from}</strong>&nbsp;to&nbsp;
@@ -297,9 +272,9 @@ export default function TrackerPage() {
       </div>
 
       {/* ── Preview Modal ── */}
-      {selectedTemplate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fadeIn">
-          <div className="card w-full max-w-md shadow-2xl overflow-hidden animate-slideInRight">
+      {mounted && selectedTemplate && createPortal(
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fadeIn">
+          <div className="card w-full max-w-md shadow-2xl overflow-hidden animate-slideInRight" onClick={(e) => e.stopPropagation()}>
 
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-wa-border)] bg-[var(--color-wa-bg)]/50">
@@ -324,16 +299,16 @@ export default function TrackerPage() {
             <div className="p-5 space-y-4">
               <div>
                 <p className="text-[10px] uppercase font-bold text-[var(--color-wa-muted)] tracking-wider mb-2">Message Body</p>
-                <div className="bg-[var(--color-wa-bg)] p-4 rounded-xl border border-[var(--color-wa-border)] border-l-4 border-l-[#25D366]">
+                <div className="bg-[var(--color-wa-bg)] p-4 rounded-xl border border-[var(--color-wa-border)] border-l-4 border-l-[#25D366] max-h-[320px] overflow-y-auto custom-scrollbar">
                   <p className="text-[13px] text-[var(--color-wa-text)] leading-relaxed italic whitespace-pre-wrap">"{selectedTemplate.body}"</p>
                 </div>
               </div>
 
               <div className="grid grid-cols-3 gap-2">
                 {[
-                  { label: 'Category', value: selectedTemplate.category,              color: 'var(--color-wa-text)' },
-                  { label: 'Status',   value: selectedTemplate.status,                color: '#25D366'              },
-                  { label: 'Est. Cost',value: `₹${selectedTemplate.cost?.toFixed(2)}`,color: '#25D366'              },
+                  { label: 'Category', value: selectedTemplate.category, color: 'var(--color-wa-text)' },
+                  { label: 'Status', value: selectedTemplate.status, color: '#25D366' },
+                  { label: 'Est. Cost', value: `₹${(selectedTemplate.cost || 0).toFixed(2)}`, color: '#25D366' },
                 ].map(m => (
                   <div key={m.label} className="bg-[var(--color-wa-bg)] rounded-xl p-3 border border-[var(--color-wa-border)] text-center">
                     <p className="text-[9px] uppercase font-bold text-[var(--color-wa-muted)] mb-1">{m.label}</p>
@@ -344,13 +319,13 @@ export default function TrackerPage() {
 
               <div className="grid grid-cols-3 gap-2">
                 {[
-                  { label: 'Sent',      value: selectedTemplate.sent      },
+                  { label: 'Sent', value: selectedTemplate.sent },
                   { label: 'Delivered', value: selectedTemplate.delivered },
-                  { label: 'Read',      value: selectedTemplate.read      },
+                  { label: 'Read', value: selectedTemplate.read },
                 ].map(m => (
                   <div key={m.label} className="bg-[var(--color-wa-bg)] rounded-xl p-3 border border-[var(--color-wa-border)] text-center">
                     <p className="text-[9px] uppercase font-bold text-[var(--color-wa-muted)] mb-1">{m.label}</p>
-                    <p className="text-[16px] font-extrabold text-[var(--color-wa-text)]">{m.value?.toLocaleString()}</p>
+                    <p className="text-[16px] font-extrabold text-[var(--color-wa-text)]">{(m.value || 0).toLocaleString()}</p>
                   </div>
                 ))}
               </div>
@@ -361,9 +336,9 @@ export default function TrackerPage() {
               <button onClick={() => setSelectedTemplate(null)} className="btn-green px-6 text-[13px]">Close</button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
 }
-
