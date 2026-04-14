@@ -20,7 +20,10 @@ function initialize() {
 
 export function AppProvider({ children }) {
   const [session,       setSession]       = useState(() => {
-    try { return JSON.parse(localStorage.getItem('wa_session')) || null; } catch { return null; }
+    if (typeof window !== 'undefined') {
+      try { return JSON.parse(localStorage.getItem('wa_session')) || null; } catch { return null; }
+    }
+    return null;
   });
   const [activePage,    setActivePage]    = useState('overview');
   const [sidebarOpen,   setSidebarOpen]   = useState(false);
@@ -30,30 +33,33 @@ export function AppProvider({ children }) {
 
   // Core data
   const [data, setData] = useState(() => {
-    try {
-      const initialized = localStorage.getItem('wa_initialized_v5');
-      if (initialized) {
-        return {
-          contacts:      JSON.parse(localStorage.getItem('wa_contacts')     || '[]'),
-          messages:      JSON.parse(localStorage.getItem('wa_messages')     || '[]'),
-          templates:     JSON.parse(localStorage.getItem('wa_templates')    || '[]'),
-          hourly:        JSON.parse(localStorage.getItem('wa_hourly')       || '[]'),
-          daily:         JSON.parse(localStorage.getItem('wa_daily')        || '[]'),
-          credits:       JSON.parse(localStorage.getItem('wa_credits')      || '{}'),
-          conversations: JSON.parse(localStorage.getItem('wa_conversations')|| '[]'),
-        };
-      }
-    } catch {}
-    const fresh = initialize();
-    localStorage.setItem('wa_contacts',      JSON.stringify(fresh.contacts));
-    localStorage.setItem('wa_messages',      JSON.stringify(fresh.messages));
-    localStorage.setItem('wa_templates',     JSON.stringify(fresh.templates));
-    localStorage.setItem('wa_hourly',        JSON.stringify(fresh.hourly));
-    localStorage.setItem('wa_daily',         JSON.stringify(fresh.daily));
-    localStorage.setItem('wa_credits',       JSON.stringify(fresh.credits));
-    localStorage.setItem('wa_conversations', JSON.stringify(fresh.conversations));
-    localStorage.setItem('wa_initialized_v5', '1');
-    return fresh;
+    if (typeof window !== 'undefined') {
+      try {
+        const initialized = localStorage.getItem('wa_initialized_v5');
+        if (initialized) {
+          return {
+            contacts:      JSON.parse(localStorage.getItem('wa_contacts')     || '[]'),
+            messages:      JSON.parse(localStorage.getItem('wa_messages')     || '[]'),
+            templates:     JSON.parse(localStorage.getItem('wa_templates')    || '[]'),
+            hourly:        JSON.parse(localStorage.getItem('wa_hourly')       || '[]'),
+            daily:         JSON.parse(localStorage.getItem('wa_daily')        || '[]'),
+            credits:       JSON.parse(localStorage.getItem('wa_credits')      || '{}'),
+            conversations: JSON.parse(localStorage.getItem('wa_conversations')|| '[]'),
+          };
+        }
+      } catch {}
+      const fresh = initialize();
+      localStorage.setItem('wa_contacts',      JSON.stringify(fresh.contacts));
+      localStorage.setItem('wa_messages',      JSON.stringify(fresh.messages));
+      localStorage.setItem('wa_templates',     JSON.stringify(fresh.templates));
+      localStorage.setItem('wa_hourly',        JSON.stringify(fresh.hourly));
+      localStorage.setItem('wa_daily',         JSON.stringify(fresh.daily));
+      localStorage.setItem('wa_credits',       JSON.stringify(fresh.credits));
+      localStorage.setItem('wa_conversations', JSON.stringify(fresh.conversations));
+      localStorage.setItem('wa_initialized_v5', '1');
+      return fresh;
+    }
+    return initialize();
   });
 
   // ── Auth ─────────────────────────────────────────────────────────────────
