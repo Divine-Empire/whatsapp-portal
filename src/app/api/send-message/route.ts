@@ -39,19 +39,19 @@ export async function POST(request: NextRequest) {
     const accessToken = config.access_token;
     const phoneNumberId = config.phone_number_id;
 
-    // Check credits
-    const { data: profile, error: profileErr } = await supabase
-      .from('profiles')
-      .select('credits')
-      .eq('id', user.id)
-      .single();
-
-    if (profileErr || !profile || profile.credits <= 0) {
-      return NextResponse.json(
-        { error: 'Insufficient credits. Please top up your account.' },
-        { status: 402 }
-      );
-    }
+    // // Check credits (temporarily disabled)
+    // const { data: profile, error: profileErr } = await supabase
+    //   .from('profiles')
+    //   .select('credits')
+    //   .eq('id', user.id)
+    //   .single();
+    //
+    // if (profileErr || !profile || profile.credits <= 0) {
+    //   return NextResponse.json(
+    //     { error: 'Insufficient credits. Please top up your account.' },
+    //     { status: 402 }
+    //   );
+    // }
 
     // Send via Meta API
     const { messageId: waMessageId } = await sendWhatsAppMessage({
@@ -80,13 +80,12 @@ export async function POST(request: NextRequest) {
       console.error('Failed to save message:', msgError);
     }
 
-    // Deduct credit
-    await supabase.rpc('decrement_credits', { user_id_param: user.id });
-    // Since we don't have the RPC defined yet in SQL, we can just update directly.
-    await supabase
-      .from('profiles')
-      .update({ credits: profile.credits - 1 })
-      .eq('id', user.id);
+    // // Deduct credit (temporarily disabled)
+    // await supabase.rpc('decrement_credits', { user_id_param: user.id });
+    // await supabase
+    //   .from('profiles')
+    //   .update({ credits: profile.credits - 1 })
+    //   .eq('id', user.id);
 
     // Update conversation
     if (conversationId) {

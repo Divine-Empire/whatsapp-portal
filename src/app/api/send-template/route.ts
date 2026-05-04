@@ -122,6 +122,12 @@ export async function POST(request: NextRequest) {
         direction: 'outbound',
         content: finalContent,
         message_type: 'template',
+        template_name: templateName,
+        metadata: {
+          templateName,
+          components: components || [],
+          languageCode: languageCode || 'en'
+        }
       }, { onConflict: 'wa_message_id' })
       .select('id')
       .single();

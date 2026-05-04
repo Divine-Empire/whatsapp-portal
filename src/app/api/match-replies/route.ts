@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/server';
-import { fetchWhatsAppTemplates, resolveTemplateBody } from '@/lib/whatsapp';
+import { fetchWhatsAppTemplates, resolveTemplateInfo } from '@/lib/whatsapp';
 
 /**
  * POST /api/match-replies
@@ -37,7 +37,7 @@ export async function POST() {
         console.error(`Error fetching placeholders for user ${user_id}:`, pErr);
       } else if (placeholders && placeholders.length > 0) {
         const templates = await fetchWhatsAppTemplates({ wabaId: waba_id, accessToken: access_token });
-        const resolvedContent = resolveTemplateBody(templates);
+        const resolvedContent = resolveTemplateInfo(templates).body;
 
         if (resolvedContent !== '[Template Message]') {
           const { count, error: uErr } = await supabase

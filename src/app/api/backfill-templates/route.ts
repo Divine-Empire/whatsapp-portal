@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/server';
-import { fetchWhatsAppTemplates, resolveTemplateBody } from '@/lib/whatsapp';
+import { fetchWhatsAppTemplates, resolveTemplateInfo } from '@/lib/whatsapp';
 
 /**
  * POST /api/backfill-templates
@@ -54,7 +54,7 @@ export async function POST() {
         accessToken: config.access_token,
       });
 
-      const resolvedContent = resolveTemplateBody(templates);
+      const resolvedContent = resolveTemplateInfo(templates).body;
 
       if (resolvedContent === '[Template Message]') {
         console.log(`⚠️ Could not resolve template for user ${userId}`);

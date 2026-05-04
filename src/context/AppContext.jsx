@@ -152,11 +152,41 @@ export function AppProvider({ children }) {
     }
   }, [addToast, router]);
 
-  // ── Legacy Send Message compatibility ─────────────────────────────────────────
-  const sendMessage = useCallback((contactId, text) => {
-    addToast('Use the Tracker or Inbox interface to send real-time messages', 'info');
-    return false;
-  }, [addToast]);
+  // ── Send Message ─────────────────────────────────────────────────────────────
+  const sendMessage = useCallback(async (contactId, text, media = []) => {
+    // Find the conversation ID for this contact
+    const conversation = data.conversations.find(c => c.contactId === contactId);
+    const contact = data.contacts.find(c => c.id === contactId);
+    
+    if (!contact) return false;
+
+    try {
+      const res = await fetch('/api/send-message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: contact.phone,
+          message: text,
+          conversationId: conversation?.id,
+          media: media // Note: Backend support for media will be added next
+        })
+      });
+
+      if (res.ok) {
+        // Optimistically refresh or wait for webhook
+        await handleRefresh();
+        return true;
+      } else {
+        const err = await res.json();
+        addToast(err.error || 'Failed to send message', 'error');
+        return false;
+      }
+    } catch (e) {
+      console.error('Send message error:', e);
+      addToast('Network error while sending message', 'error');
+      return false;
+    }
+  }, [data.conversations, data.contacts, handleRefresh, addToast]);
 
   const updateContact = useCallback((contactId, updates) => {
     addToast('Not implemented in prototype mode', 'info');

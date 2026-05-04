@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
-import { fetchWhatsAppTemplates, resolveTemplateBody } from "@/lib/whatsapp";
+import { fetchWhatsAppTemplates, resolveTemplateInfo } from "@/lib/whatsapp";
 
 export async function GET(
   request: NextRequest,
@@ -73,8 +73,151 @@ export async function POST(
         const phoneNumber = msg.from;
         const profileName = changes.contacts?.[0]?.profile?.name || phoneNumber;
         const waMessageId = msg.id;
-        const messageContent = msg.text?.body || msg.caption || "[media]";
         const messageType = msg.type || "text";
+
+        // ── Handle Reactions — update existing message, don't create new one ──
+        if (messageType === "reaction") {
+          const reactedMsgId = msg.reaction?.message_id;
+          const emoji = msg.reaction?.emoji || "";
+
+          if (reactedMsgId) {
+            console.log(`😀 Reaction received: "${emoji}" on message ${reactedMsgId} from ${phoneNumber}`);
+
+            // Fetch the current reactions on the target message
+            const { data: targetMsg } = await supabase
+              .from("messages")
+              .select("id, reactions")
+              .eq("wa_message_id", reactedMsgId)
+              .eq("user_id", userId)
+              .maybeSingle();
+
+            if (targetMsg) {
+              const currentReactions: any[] = targetMsg.reactions || [];
+
+              if (emoji) {
+                // Add or update reaction from this sender
+                const existingIdx = currentReactions.findIndex(
+                  (r: any) => r.sender === "customer"
+                );
+                if (existingIdx >= 0) {
+                  currentReactions[existingIdx].emoji = emoji;
+                } else {
+                  currentReactions.push({ emoji, sender: "customer" });
+                }
+              } else {
+                // Empty emoji = remove reaction from this sender
+                const filtered = currentReactions.filter(
+                  (r: any) => r.sender !== "customer"
+                );
+                currentReactions.length = 0;
+                currentReactions.push(...filtered);
+              }
+
+              await supabase
+                .from("messages")
+                .update({ reactions: currentReactions })
+                .eq("id", targetMsg.id);
+
+              console.log(`✅ Reaction updated on message ${reactedMsgId}`);
+            } else {
+              console.warn(`⚠️ Reaction target message ${reactedMsgId} not found in DB`);
+            }
+          }
+          continue; // Don't create a new message row for reactions
+        }
+
+        // ── Extract content and media based on message type ───────────────
+        let messageContent = "";
+        let mediaArray: any[] = [];
+        let mimeType: string | null = null;
+        let fileSize: number | null = null;
+
+        switch (messageType) {
+          case "text":
+            messageContent = msg.text?.body || "";
+            break;
+
+          case "image":
+            messageContent = msg.image?.caption || "";
+            mimeType = msg.image?.mime_type || "image/jpeg";
+            fileSize = msg.image?.file_size || null;
+            mediaArray.push({
+              type: "image",
+              id: msg.image?.id,
+              mime_type: mimeType,
+              file_size: fileSize,
+            });
+            break;
+
+          case "video":
+            messageContent = msg.video?.caption || "";
+            mimeType = msg.video?.mime_type || "video/mp4";
+            fileSize = msg.video?.file_size || null;
+            mediaArray.push({
+              type: "video",
+              id: msg.video?.id,
+              mime_type: mimeType,
+              file_size: fileSize,
+            });
+            break;
+
+          case "document":
+            messageContent = msg.document?.caption || "";
+            mimeType = msg.document?.mime_type || "application/pdf";
+            fileSize = msg.document?.file_size || null;
+            mediaArray.push({
+              type: "document",
+              id: msg.document?.id,
+              fileName: msg.document?.filename || "Document",
+              mime_type: mimeType,
+              file_size: fileSize,
+            });
+            break;
+
+          case "audio":
+            messageContent = "";
+            mimeType = msg.audio?.mime_type || "audio/ogg";
+            fileSize = msg.audio?.file_size || null;
+            mediaArray.push({
+              type: "audio",
+              id: msg.audio?.id,
+              mime_type: mimeType,
+              file_size: fileSize,
+            });
+            break;
+
+          case "sticker":
+            messageContent = "[Sticker]";
+            mimeType = msg.sticker?.mime_type || "image/webp";
+            mediaArray.push({
+              type: "sticker",
+              id: msg.sticker?.id,
+              mime_type: mimeType,
+            });
+            break;
+
+          case "location": {
+            const lat = msg.location?.latitude;
+            const lng = msg.location?.longitude;
+            messageContent = `📍 Location: ${lat}, ${lng}`;
+            break;
+          }
+
+          case "contacts": {
+            const contactName = msg.contacts?.[0]?.name?.formatted_name || "Contact";
+            messageContent = `👤 Shared contact: ${contactName}`;
+            break;
+          }
+
+          default:
+            messageContent = msg.text?.body || msg.caption || `[${messageType}]`;
+            break;
+        }
+
+        // If content is still empty for media messages, set a descriptive placeholder
+        if (!messageContent && mediaArray.length > 0) {
+          messageContent = `[${messageType.charAt(0).toUpperCase() + messageType.slice(1)}]`;
+        }
 
         // Upsert contact
         const { data: contact, error: contactError } = await supabase
@@ -103,7 +246,7 @@ export async function POST(
             {
               user_id: userId,
               contact_id: contact.id,
-              last_message: messageContent,
+              last_message: messageContent || `[${messageType}]`,
               last_message_at: new Date().toISOString(),
             },
             { onConflict: "user_id,contact_id" },
@@ -122,24 +265,32 @@ export async function POST(
           .update({ unread_count: (conversation.unread_count || 0) + 1 })
           .eq("id", conversation.id);
 
+        // Build insert data using actual DB column names
+        const insertData: Record<string, any> = {
+          user_id: userId,
+          conversation_id: conversation.id,
+          wa_message_id: waMessageId,
+          direction: "inbound",
+          content: messageContent,
+          message_type: messageType,
+          status: "sent",
+        };
+
+        // Add media fields using actual column names from messages table
+        if (mimeType) insertData.mime_type = mimeType;
+        if (fileSize) insertData.file_size = fileSize;
+        if (mediaArray.length > 0) insertData.media = mediaArray;
+
         // Insert message
         const { error: msgInsertError } = await supabase
           .from("messages")
-          .insert({
-            user_id: userId,
-            conversation_id: conversation.id,
-            wa_message_id: waMessageId,
-            direction: "inbound",
-            content: messageContent,
-            message_type: messageType,
-            status: "sent",
-          });
+          .insert(insertData);
 
         if (msgInsertError) {
           console.error("❌ Error inserting incoming message:", msgInsertError);
         } else {
           console.log(
-            `✅ Success: Message inserted for user ${userId} and wamid ${waMessageId}`,
+            `✅ Success: ${messageType} message inserted for user ${userId} (wamid: ${waMessageId})`,
           );
         }
       }
@@ -150,6 +301,7 @@ export async function POST(
       for (const status of changes.statuses) {
         const waMessageId = status.id;
         const statusValue = status.status; // sent, delivered, read, failed
+        const callbackData = status.biz_opaque_callback_data; // This is the gold!
         const timestamp = status.timestamp
           ? new Date(parseInt(status.timestamp) * 1000).toISOString()
           : new Date().toISOString();
@@ -167,6 +319,15 @@ export async function POST(
             JSON.stringify(status.errors || status, null, 2),
             `\n`,
           );
+        }
+
+        if (status.pricing?.category) {
+          updateData.pricing_category = status.pricing.category;
+        }
+
+        // If we have callback data (template name), use it
+        if (callbackData) {
+          updateData.template_name = callbackData;
         }
 
         // Add returning representation to catch when a record is not found!
@@ -200,20 +361,23 @@ export async function POST(
 
             // Resolve the actual template body text from Meta's API
             let templateContent = "[Template Message]";
+            let resolvedTemplateName = callbackData || "unknown";
+
             if (config?.waba_id && config?.access_token) {
-              const pricingCategory = status.pricing?.category; // e.g. "utility", "marketing"
+              const pricingCategory = status.pricing?.category; // e.g. \"utility\", \"marketing\"
               console.log(
-                `📋 Fetching templates from Meta (WABA: ${config.waba_id}, category: ${pricingCategory})...`,
+                `📋 Fetching templates from Meta (WABA: ${config.waba_id}, category: ${pricingCategory}, hint: ${callbackData})...`,
               );
               const templates = await fetchWhatsAppTemplates({
                 wabaId: config.waba_id,
                 accessToken: config.access_token,
               });
-              console.log(`📋 Found ${templates.length} approved templates`);
-              templateContent = resolveTemplateBody(templates, pricingCategory);
-              console.log(
-                `📋 Resolved template content: "${templateContent.substring(0, 80)}..."`,
-              );
+              
+              const info = resolveTemplateInfo(templates, pricingCategory, callbackData);
+              templateContent = info.body;
+              resolvedTemplateName = info.name;
+              
+              console.log(`📋 Resolved template: ${resolvedTemplateName}`);
             }
 
             const { data: contact, error: contactError } = await supabase
@@ -248,8 +412,10 @@ export async function POST(
                   direction: "outbound",
                   content: templateContent,
                   message_type: "template",
+                  template_name: resolvedTemplateName,
                   status: statusValue,
                   created_at: timestamp,
+                  pricing_category: status.pricing?.category
                 };
                 if (statusValue === "delivered")
                   insertData.delivered_at = timestamp;

@@ -47,6 +47,46 @@ export async function sendWhatsAppMessage({
 }
 
 /**
+ * Send an emoji reaction to a message via WhatsApp Cloud API.
+ * Pass an empty string for `emoji` to remove a reaction.
+ */
+export async function sendWhatsAppReaction({
+  to,
+  messageId,
+  emoji,
+  accessToken,
+  phoneNumberId,
+}: {
+  to: string;
+  messageId: string;
+  emoji: string;
+  accessToken: string;
+  phoneNumberId: string;
+}): Promise<void> {
+  const url = `https://graph.facebook.com/v19.0/${phoneNumberId}/messages`;
+
+  await axios.post(
+    url,
+    {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to,
+      type: 'reaction',
+      reaction: {
+        message_id: messageId,
+        emoji,
+      },
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    }
+  );
+}
+
+/**
  * Verify the Meta access token is valid by calling the API
  */
 export async function verifyMetaToken(
@@ -116,30 +156,38 @@ export async function fetchWhatsAppTemplates({
 }
 
 /**
- * Resolve the body text of a template by matching its category from a webhook pricing payload.
- * If there's exactly one match, returns that template's body text.
- * If there are multiple, returns the first one with a label.
- * Falls back to a readable fallback string.
+ * Resolve the body text and name of a template by matching its category or name.
+ * Priority: 1. Exact name match, 2. Category match, 3. Single template fallback.
  */
-export function resolveTemplateBody(
+export function resolveTemplateInfo(
   templates: { name: string; category: string; body: string }[],
-  pricingCategory?: string
-): string {
-  if (templates.length === 0) return '[Template Message]';
+  pricingCategory?: string,
+  exactName?: string
+): { name: string; body: string } {
+  if (templates.length === 0) return { name: 'unknown', body: '[Template Message]' };
 
-  // If we have a pricing category from the webhook, try to match
+  // 1. Priority: Exact Name Match (from biz_opaque_callback_data)
+  if (exactName) {
+    const match = templates.find(t => t.name.toLowerCase() === exactName.toLowerCase());
+    if (match) return { name: match.name, body: match.body };
+  }
+
+  // 2. Secondary: Pricing Category Match
   if (pricingCategory) {
     const catLower = pricingCategory.toLowerCase();
     const matched = templates.filter((t) => t.category === catLower);
-    if (matched.length === 1) return matched[0].body;
-    if (matched.length > 1) return matched[0].body; // Use first match
+    if (matched.length > 0) {
+      // Use the first match in the category
+      return { name: matched[0].name, body: matched[0].body };
+    }
   }
 
-  // If there's only one template total, use it
-  if (templates.length === 1) return templates[0].body;
+  // 3. Fallback: If only one template total
+  if (templates.length === 1) {
+    return { name: templates[0].name, body: templates[0].body };
+  }
 
-  // Fallback
-  return '[Template Message]';
+  return { name: exactName || 'unknown', body: '[Template Message]' };
 }
 
 /**

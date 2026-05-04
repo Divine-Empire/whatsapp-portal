@@ -34,6 +34,12 @@ export interface DashMessage {
   delivered_at: string | null;
   seen_at: string | null;
   created_at: string;
+  // Media & reactions (jsonb columns in Supabase)
+  reactions?: { emoji: string; sender: string }[];
+  media?: { type: string; id?: string; fileName?: string; mime_type?: string; file_size?: number; url?: string }[];
+  mime_type?: string;
+  file_size?: number;
+  myReaction?: string; // client-side only — optimistic UI
 }
 
 // ---- Store Shape ----
@@ -56,6 +62,7 @@ interface DashStore {
   fetchConversations: () => Promise<void>;
   fetchMessages: (conversationId: string) => Promise<void>;
   sendMessage: (to: string, message: string, conversationId: string) => Promise<void>;
+  sendReaction: (to: string, waMessageId: string, emoji: string, msgId: string) => Promise<void>;
   markConversationRead: (conversationId: string) => Promise<void>;
 
   // Realtime handlers
@@ -139,6 +146,41 @@ export const useDashStore = create<DashStore>((set, get) => ({
     } catch (err) {
       console.error('Send message error:', err);
       throw err;
+    }
+  },
+
+  sendReaction: async (to, waMessageId, emoji, msgId) => {
+    // Optimistic update — show the reaction immediately in UI
+    set((state) => ({
+      messages: state.messages.map((m) => {
+        if (m.id !== msgId) return m;
+        const currentReactions = [...(m.reactions || [])];
+        // Remove existing 'me' reaction
+        const filtered = currentReactions.filter((r) => r.sender !== 'me');
+        // Add new one if emoji is not empty
+        if (emoji) {
+          filtered.push({ emoji, sender: 'me' });
+        }
+        return { ...m, reactions: filtered, myReaction: emoji || undefined };
+      }),
+    }));
+
+    try {
+      await fetch('/api/send-reaction', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to, messageId: waMessageId, emoji }),
+      });
+    } catch (err) {
+      console.error('Send reaction error:', err);
+      // Revert optimistic update on failure
+      set((state) => ({
+        messages: state.messages.map((m) => {
+          if (m.id !== msgId) return m;
+          const reverted = (m.reactions || []).filter((r) => r.sender !== 'me');
+          return { ...m, reactions: reverted, myReaction: undefined };
+        }),
+      }));
     }
   },
 

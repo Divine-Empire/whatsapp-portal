@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('userId');
 
-    // Get current authenticated user (if called from browser)
+    // Get current authenticated user
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -24,6 +24,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // 1. Fetch Config
     const { data: config } = await supabase
       .from('whatsapp_configs')
       .select('waba_id, access_token')
@@ -31,18 +32,66 @@ export async function GET(request: NextRequest) {
       .single();
 
     if (!config?.waba_id || !config?.access_token) {
-      return NextResponse.json(
-        { error: 'WhatsApp config not found' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'WhatsApp config not found' }, { status: 400 });
     }
 
-    const templates = await fetchWhatsAppTemplates({
+    // 2. Fetch Templates from Meta
+    const metaTemplates = await fetchWhatsAppTemplates({
       wabaId: config.waba_id,
       accessToken: config.access_token,
     });
 
+    // 3. Fetch Message Stats from Database
+    // We group by template_name to get counts
+    const { data: messages, error: msgErr } = await supabase
+      .from('messages')
+      .select('status, template_name, direction')
+      .eq('user_id', activeUserId)
+      .eq('message_type', 'template');
+
+    if (msgErr) throw msgErr;
+
+    // 4. Aggregate Stats
+    const statsMap: Record<string, any> = {};
+    
+    (messages || []).forEach(msg => {
+      const name = msg.template_name || 'unknown';
+      if (!statsMap[name]) {
+        statsMap[name] = { sent: 0, delivered: 0, read: 0, failed: 0, replied: 0 };
+      }
+
+      const s = statsMap[name];
+      if (msg.direction === 'outbound') {
+        if (['sent', 'delivered', 'read'].includes(msg.status)) s.sent++;
+        if (['delivered', 'read'].includes(msg.status)) s.delivered++;
+        if (msg.status === 'read') s.read++;
+        if (msg.status === 'failed') s.failed++;
+      }
+    });
+
+    // 5. Merge Meta Data with DB Stats
+    const templates = metaTemplates.map(t => {
+      const s = statsMap[t.name] || { sent: 0, delivered: 0, read: 0, failed: 0, replied: 0 };
+      
+      const deliveryRate = s.sent > 0 ? Math.round((s.delivered / s.sent) * 100) : 0;
+      const readRate     = s.sent > 0 ? Math.round((s.read / s.sent) * 100) : 0;
+      const replyRate    = s.sent > 0 ? Math.round((s.replied / s.sent) * 100) : 0;
+
+      return {
+        ...t,
+        sent: s.sent,
+        delivered: s.delivered,
+        read: s.read,
+        failed: s.failed,
+        replied: s.replied,
+        deliveryRate,
+        readRate,
+        replyRate
+      };
+    });
+
     return NextResponse.json({ templates });
+
   } catch (err: any) {
     console.error('Fetch templates error:', err);
     return NextResponse.json(

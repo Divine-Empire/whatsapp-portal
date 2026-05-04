@@ -1,7 +1,8 @@
 'use client';
+
 import React from 'react';
 import { useApp } from '../context/AppContext';
-import { Heart, Award, Smartphone, TrendingUp, AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
+import { Heart, Award, Smartphone, TrendingUp, AlertTriangle, CheckCircle } from 'lucide-react';
 
 function ScoreRing({ score }) {
   const color = score >= 80 ? '#25D366' : score >= 50 ? '#eab308' : '#ef4444';
@@ -37,12 +38,18 @@ export default function HealthPage() {
   ));
 
   const quality = score >= 80 ? 'green' : score >= 50 ? 'yellow' : 'red';
-  const tier = score >= 80 ? { label: 'Tier 1', color: '#25D366', limit: '10,000 msgs/day' }
-             : score >= 50 ? { label: 'Tier 2', color: '#eab308', limit: '1,000 msgs/day' }
-             :               { label: 'Tier 3', color: '#ef4444', limit: '250 msgs/day' };
-
   const qualityLabel = quality === 'green' ? 'Excellent' : quality === 'yellow' ? 'Fair' : 'Poor';
   const qualityColor = quality === 'green' ? '#25D366' : quality === 'yellow' ? '#eab308' : '#ef4444';
+
+  // Meta Standard Tiers
+  const tiers = [
+    { id: 1, label: 'Tier 1', limit: '1,000',     req: 'Starter Limit',   color: '#34B7F1', active: score < 50 },
+    { id: 2, label: 'Tier 2', limit: '10,000',    req: 'Medium Volume',   color: '#eab308', active: score >= 50 && score < 80 },
+    { id: 3, label: 'Tier 3', limit: '100,000',   req: 'High Volume',     color: '#25D366', active: score >= 80 && score < 95 },
+    { id: 4, label: 'Tier 4', limit: 'Unlimited', req: 'Premium Access',  color: '#6366F1', active: score >= 95 },
+  ];
+
+  const currentTier = tiers.find(t => t.active) || tiers[0];
 
   const suggestions = [
     { ok: deliveryRate >= 85, text: `Delivery rate is ${deliveryRate.toFixed(1)}% (target ≥ 85%)`, fix: 'Improve contact list quality and template relevance.' },
@@ -56,7 +63,7 @@ export default function HealthPage() {
     { label: 'Delivery Rate', value: `${deliveryRate.toFixed(1)}%`, color: '#25D366' },
     { label: 'Read Rate',     value: `${readRate.toFixed(1)}%`,     color: '#3b82f6' },
     { label: 'Fail Rate',     value: `${failRate.toFixed(1)}%`,     color: '#ef4444' },
-    { label: 'Total Sent',    value: stats.sent.toLocaleString(),   color: 'var(--color-wa-text)' },
+    { label: 'Total Sent',    value: (stats.sent || 0).toLocaleString(),   color: 'var(--color-wa-text)' },
   ];
 
   return (
@@ -75,13 +82,13 @@ export default function HealthPage() {
 
         {/* Tier card */}
         <div className="card p-3 md:p-4 flex flex-col items-center justify-center gap-3 text-center">
-          <Award size={24} style={{ color: tier.color }} />
+          <Award size={24} style={{ color: currentTier.color }} />
           <div>
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full mb-2" style={{ background: tier.color + '15', border: `1px solid ${tier.color}33` }}>
-              <span className="text-[14px] font-bold" style={{ color: tier.color }}>{tier.label}</span>
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full mb-2" style={{ background: currentTier.color + '15', border: `1px solid ${currentTier.color}33` }}>
+              <span className="text-[14px] font-bold" style={{ color: currentTier.color }}>{currentTier.label}</span>
             </div>
             <p className="text-[12px] text-[var(--color-wa-muted)]">Messaging Tier</p>
-            <p className="text-[11px] mt-1 font-semibold" style={{ color: tier.color }}>Limit: {tier.limit}</p>
+            <p className="text-[11px] mt-1 font-semibold" style={{ color: currentTier.color }}>Limit: {currentTier.limit} msgs/day</p>
           </div>
         </div>
 
@@ -128,21 +135,17 @@ export default function HealthPage() {
         <div className="card p-3 md:p-4">
           <h3 className="text-[12px] font-semibold text-[var(--color-wa-text)] mb-3">Tier Comparison</h3>
           <div className="space-y-2">
-            {[
-              { tier: 'Tier 1', color: '#25D366', limit: '10,000/day', req: 'Quality ≥ 80', active: score >= 80 },
-              { tier: 'Tier 2', color: '#eab308', limit: '1,000/day',  req: 'Quality ≥ 50', active: score >= 50 && score < 80 },
-              { tier: 'Tier 3', color: '#ef4444', limit: '250/day',    req: 'Quality < 50', active: score < 50 },
-            ].map(t => (
-              <div key={t.tier} className={`flex items-center justify-between p-3 rounded-xl border transition ${t.active ? 'bg-[var(--color-wa-bg)] border-current shadow-sm' : 'border-[var(--color-wa-border)]'}`} style={{ borderColor: t.active ? t.color : undefined }}>
+            {tiers.map(t => (
+              <div key={t.label} className={`flex items-center justify-between p-3 rounded-xl border transition ${t.active ? 'bg-[var(--color-wa-bg)] border-current shadow-sm' : 'border-[var(--color-wa-border)]'}`} style={{ borderColor: t.active ? t.color : undefined }}>
                 <div className="flex items-center gap-3">
                   <div className={`w-2 h-8 rounded-full`} style={{ background: t.color }}></div>
                   <div>
-                    <p className="text-[13px] font-bold text-[var(--color-wa-text)]">{t.tier}</p>
+                    <p className="text-[13px] font-bold text-[var(--color-wa-text)]">{t.label}</p>
                     <p className="text-[10px] text-[var(--color-wa-muted)]">{t.req}</p>
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className="text-[12px] font-bold text-[var(--color-wa-text)]">{t.limit}</p>
+                  <p className="text-[12px] font-bold text-[var(--color-wa-text)]">{t.limit}/day</p>
                   {t.active && <span className="text-[9px] font-bold uppercase tracking-widest" style={{ color: t.color }}>Active</span>}
                 </div>
               </div>
@@ -153,4 +156,3 @@ export default function HealthPage() {
     </div>
   );
 }
-
