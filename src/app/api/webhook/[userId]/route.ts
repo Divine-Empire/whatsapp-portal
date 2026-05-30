@@ -19,7 +19,7 @@ export async function GET(
 
   const supabase = createAdminClient();
   const { data: config } = await supabase
-    .from("whatsapp_configs")
+    .from("whatsapp_portal_configs")
     .select("webhook_verify_token")
     .eq("user_id", userId)
     .single();
@@ -85,7 +85,7 @@ export async function POST(
 
             // Fetch the current reactions on the target message
             const { data: targetMsg } = await supabase
-              .from("messages")
+              .from("whatsapp_portal_messages")
               .select("id, reactions")
               .eq("wa_message_id", reactedMsgId)
               .eq("user_id", userId)
@@ -114,7 +114,7 @@ export async function POST(
               }
 
               await supabase
-                .from("messages")
+                .from("whatsapp_portal_messages")
                 .update({ reactions: currentReactions })
                 .eq("id", targetMsg.id);
 
@@ -221,7 +221,7 @@ export async function POST(
 
         // Upsert contact
         const { data: contact, error: contactError } = await supabase
-          .from("contacts")
+          .from("whatsapp_portal_contacts")
           .upsert(
             {
               user_id: userId,
@@ -241,7 +241,7 @@ export async function POST(
 
         // Upsert conversation
         const { data: conversation, error: convError } = await supabase
-          .from("conversations")
+          .from("whatsapp_portal_conversations")
           .upsert(
             {
               user_id: userId,
@@ -261,7 +261,7 @@ export async function POST(
 
         // Increment unread count
         await supabase
-          .from("conversations")
+          .from("whatsapp_portal_conversations")
           .update({ unread_count: (conversation.unread_count || 0) + 1 })
           .eq("id", conversation.id);
 
@@ -283,7 +283,7 @@ export async function POST(
 
         // Insert message
         const { error: msgInsertError } = await supabase
-          .from("messages")
+          .from("whatsapp_portal_messages")
           .insert(insertData);
 
         if (msgInsertError) {
@@ -333,7 +333,7 @@ export async function POST(
 
         // Add returning representation to catch when a record is not found!
         const { data: updatedRecord, error: statusUpdateError } = await supabase
-          .from("messages")
+          .from("whatsapp_portal_messages")
           .update(updateData)
           .eq("wa_message_id", waMessageId)
           .eq("user_id", userId)
@@ -355,7 +355,7 @@ export async function POST(
 
             // Fetch the user's WhatsApp config to get WABA ID and access token
             const { data: config } = await supabase
-              .from("whatsapp_configs")
+              .from("whatsapp_portal_configs")
               .select("waba_id, access_token")
               .eq("user_id", userId)
               .single();
@@ -382,7 +382,7 @@ export async function POST(
             }
 
             const { data: contact, error: contactError } = await supabase
-              .from("contacts")
+              .from("whatsapp_portal_contacts")
               .upsert(
                 { user_id: userId, phone_number: status.recipient_id },
                 { onConflict: "user_id,phone_number" },
@@ -392,7 +392,7 @@ export async function POST(
 
             if (!contactError && contact) {
               const { data: conversation, error: convError } = await supabase
-                .from("conversations")
+                .from("whatsapp_portal_conversations")
                 .upsert(
                   {
                     user_id: userId,
@@ -426,7 +426,7 @@ export async function POST(
                 }
 
                 const { error: insertErr } = await supabase
-                  .from("messages")
+                  .from("whatsapp_portal_messages")
                   .insert(insertData);
                 if (!insertErr) {
                   console.log(
@@ -437,7 +437,7 @@ export async function POST(
                     `⚠️ Duplicate key for ${waMessageId} (already exists). Updating status instead.`,
                   );
                   const { error: retryUpdateErr } = await supabase
-                    .from("messages")
+                    .from("whatsapp_portal_messages")
                     .update(updateData)
                     .eq("wa_message_id", waMessageId);
                   if (retryUpdateErr)

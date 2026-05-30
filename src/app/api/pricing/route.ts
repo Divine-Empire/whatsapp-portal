@@ -16,7 +16,7 @@ export async function GET() {
 
     // Try to fetch user-specific pricing
     const { data: pricing, error: pricingErr } = await supabase
-      .from('whatsapp_pricing')
+      .from('whatsapp_portal_pricing')
       .select('*')
       .or(`user_id.eq.${user.id},user_id.is.null`)
       .order('category', { ascending: true });
@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
     }));
 
     const { error: upsertErr } = await supabase
-      .from('whatsapp_pricing')
+      .from('whatsapp_portal_pricing')
       .upsert(upsertData, { onConflict: 'user_id,category' });
 
     if (upsertErr) throw upsertErr;

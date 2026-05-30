@@ -12,7 +12,7 @@ export async function POST() {
 
     // 1. Fetch all users who have whatsapp_configs to sync their data
     const { data: configs, error: configErr } = await supabase
-      .from('whatsapp_configs')
+      .from('whatsapp_portal_configs')
       .select('user_id, waba_id, access_token');
 
     if (configErr) throw configErr;
@@ -27,7 +27,7 @@ export async function POST() {
 
       // --- A. Template Backfill (Matching content) ---
       const { data: placeholders, error: pErr } = await supabase
-        .from('messages')
+        .from('whatsapp_portal_messages')
         .select('id, content')
         .eq('user_id', user_id)
         .eq('message_type', 'template')
@@ -41,7 +41,7 @@ export async function POST() {
 
         if (resolvedContent !== '[Template Message]') {
           const { count, error: uErr } = await supabase
-            .from('messages')
+            .from('whatsapp_portal_messages')
             .update({ content: resolvedContent }, { count: 'exact' })
             .in('id', placeholders.map((p: any) => p.id));
           
@@ -55,7 +55,7 @@ export async function POST() {
 
       // --- B. Conversation Threading Reconciliation ---
       const { data: conversations, error: cErr } = await supabase
-        .from('conversations')
+        .from('whatsapp_portal_conversations')
         .select('id, contact_id')
         .eq('user_id', user_id);
 
@@ -67,7 +67,7 @@ export async function POST() {
       for (const conv of (conversations || [])) {
         // Find latest message for this conversation
         const { data: latestMsg } = await supabase
-          .from('messages')
+          .from('whatsapp_portal_messages')
           .select('content, created_at, direction')
           .eq('conversation_id', conv.id)
           .order('created_at', { ascending: false })
@@ -76,7 +76,7 @@ export async function POST() {
 
         // Count unread messages
         const { count: unreadCount } = await supabase
-          .from('messages')
+          .from('whatsapp_portal_messages')
           .select('*', { count: 'exact', head: true })
           .eq('conversation_id', conv.id)
           .eq('direction', 'inbound')
@@ -84,7 +84,7 @@ export async function POST() {
 
         if (latestMsg) {
           const { error: convUpdateErr } = await supabase
-            .from('conversations')
+            .from('whatsapp_portal_conversations')
             .update({
               last_message: latestMsg.content,
               last_message_at: latestMsg.created_at,

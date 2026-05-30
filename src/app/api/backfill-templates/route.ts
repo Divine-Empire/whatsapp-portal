@@ -13,7 +13,7 @@ export async function POST() {
 
     // Get all placeholder messages
     const { data: placeholders, error: fetchErr } = await supabase
-      .from('messages')
+      .from('whatsapp_portal_messages')
       .select('id, user_id, content')
       .or('content.eq.[Template/External Message],content.eq.[Template Message]')
       .eq('message_type', 'template');
@@ -38,7 +38,7 @@ export async function POST() {
     for (const [userId, msgIds] of Object.entries(byUser)) {
       // Fetch WhatsApp config for this user
       const { data: config } = await supabase
-        .from('whatsapp_configs')
+        .from('whatsapp_portal_configs')
         .select('waba_id, access_token')
         .eq('user_id', userId)
         .single();
@@ -63,7 +63,7 @@ export async function POST() {
 
       // Update all placeholder messages for this user
       const { error: updateErr, count } = await supabase
-        .from('messages')
+        .from('whatsapp_portal_messages')
         .update({ content: resolvedContent })
         .in('id', msgIds);
 
@@ -76,7 +76,7 @@ export async function POST() {
 
       // Also update conversation last_message if it's a placeholder
       await supabase
-        .from('conversations')
+        .from('whatsapp_portal_conversations')
         .update({ last_message: resolvedContent })
         .eq('user_id', userId)
         .or('last_message.eq.[Template/External Message],last_message.eq.[Template Message]');

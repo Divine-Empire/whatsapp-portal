@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
 
     // 1. Fetch Config
     const { data: config } = await supabase
-      .from('whatsapp_configs')
+      .from('whatsapp_portal_configs')
       .select('waba_id, access_token')
       .eq('user_id', activeUserId)
       .single();
@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
     // 3. Fetch Message Stats from Database
     // We group by template_name to get counts
     const { data: messages, error: msgErr } = await supabase
-      .from('messages')
+      .from('whatsapp_portal_messages')
       .select('status, template_name, direction')
       .eq('user_id', activeUserId)
       .eq('message_type', 'template');

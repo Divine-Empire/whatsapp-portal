@@ -83,7 +83,7 @@ export async function POST(req: Request) {
     // 1. Resolve Contact (with user_id to match webhook/portal schema)
     let contactId;
     let { data: existingContacts } = await supabase
-      .from('contacts')
+      .from('whatsapp_portal_contacts')
       .select('id')
       .eq('user_id', userId)
       .eq('phone_number', contactNumber)
@@ -93,7 +93,7 @@ export async function POST(req: Request) {
       contactId = existingContacts[0].id;
     } else {
       const { data: newContact, error: contactErr } = await supabase
-        .from('contacts')
+        .from('whatsapp_portal_contacts')
         .insert({ 
           user_id: userId,
           phone_number: contactNumber, 
@@ -113,7 +113,7 @@ export async function POST(req: Request) {
     // 2. Resolve Conversation (with user_id to match webhook/portal schema)
     let conversationId;
     let { data: existingConvs } = await supabase
-      .from('conversations')
+      .from('whatsapp_portal_conversations')
       .select('id')
       .eq('user_id', userId)
       .eq('contact_id', contactId)
@@ -122,13 +122,13 @@ export async function POST(req: Request) {
     if (existingConvs && existingConvs.length > 0) {
       conversationId = existingConvs[0].id;
       // Update last message
-      await supabase.from('conversations').update({
+      await supabase.from('whatsapp_portal_conversations').update({
         last_message: content || `[${message_type}]`,
         last_message_at: timestamp
       }).eq('id', conversationId);
     } else {
       const { data: newConv, error: convErr } = await supabase
-        .from('conversations')
+        .from('whatsapp_portal_conversations')
         .insert({ 
           user_id: userId,
           contact_id: contactId, 
@@ -164,7 +164,7 @@ export async function POST(req: Request) {
     }
 
     const { error: msgError } = await supabase
-      .from('messages')
+      .from('whatsapp_portal_messages')
       .upsert(msgData, { onConflict: 'wa_message_id' });
 
     if (msgError) {

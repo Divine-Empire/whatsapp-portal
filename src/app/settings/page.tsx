@@ -52,7 +52,7 @@ export default function SettingsPage() {
       if (user) {
         setUserId(user.id);
         const { data: config } = await supabase
-          .from('whatsapp_configs')
+          .from('whatsapp_portal_configs')
           .select('*')
           .eq('user_id', user.id)
           .single();
@@ -106,7 +106,7 @@ export default function SettingsPage() {
     setLoading(true);
     try {
       const { error: updateError } = await supabase
-        .from('whatsapp_configs')
+        .from('whatsapp_portal_configs')
         .update({
           phone_number_id: phoneNumberId,
           waba_id: wabaId,
@@ -131,7 +131,7 @@ export default function SettingsPage() {
     setLoading(true);
     try {
       await supabase
-        .from('whatsapp_configs')
+        .from('whatsapp_portal_configs')
         .update({ is_active: false })
         .eq('user_id', userId);
       setIsActive(false);

@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     }
 
     const { data: config } = await supabase
-      .from('whatsapp_configs')
+      .from('whatsapp_portal_configs')
       .select('access_token, phone_number_id, waba_id')
       .eq('user_id', activeUserId)
       .single();
@@ -70,8 +70,8 @@ export async function POST(request: NextRequest) {
     // If conversationId is not provided (e.g. sending template to a new user), create/get it
     if (!currentConversationId) {
        // 1. Upsert contact
-       const { data: contact, error: contactError } = await (supabase as any)
-         .from('contacts')
+        const { data: contact, error: contactError } = await (supabase as any)
+          .from('whatsapp_portal_contacts')
          .upsert(
            { user_id: activeUserId, phone_number: to },
            { onConflict: 'user_id,phone_number' }
@@ -81,8 +81,8 @@ export async function POST(request: NextRequest) {
          
        if (contact) {
          // 2. Upsert conversation
-         const { data: conversation, error: convError } = await (supabase as any)
-           .from('conversations')
+          const { data: conversation, error: convError } = await (supabase as any)
+            .from('whatsapp_portal_conversations')
            .upsert(
              {
                user_id: activeUserId,
@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
     // Save outbound message to Supabase
     // Use UPSERT on wa_message_id to handle race condition with Webhook incoming statuses
     const { data: savedMsg, error: msgError } = await supabase
-      .from('messages')
+      .from('whatsapp_portal_messages')
       .upsert({
         user_id: activeUserId,
         conversation_id: currentConversationId,
@@ -129,7 +129,7 @@ export async function POST(request: NextRequest) {
     // Update conversation if we had an existing one
     if (conversationId) {
       await supabase
-        .from('conversations')
+        .from('whatsapp_portal_conversations')
         .update({
           last_message: finalContent,
           last_message_at: new Date().toISOString(),

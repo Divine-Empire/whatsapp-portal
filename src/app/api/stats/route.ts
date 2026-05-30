@@ -8,7 +8,7 @@ export async function GET() {
 
     // Messages Stats
     const { data: messages, error: messagesErr } = await supabase
-      .from('messages')
+      .from('whatsapp_portal_messages')
       .select('status, direction')
       .eq('user_id', user.id);
 

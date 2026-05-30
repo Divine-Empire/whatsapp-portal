@@ -51,7 +51,7 @@ export default function OnboardingPage() {
         setUserId(user.id);
         // Check existing config
         const { data: config } = await supabase
-          .from('whatsapp_configs')
+          .from('whatsapp_portal_configs')
           .select('*')
           .eq('user_id', user.id)
           .single();
@@ -105,7 +105,7 @@ export default function OnboardingPage() {
     try {
       if (existingConfig) {
         const { error: updateError } = await supabase
-          .from('whatsapp_configs')
+          .from('whatsapp_portal_configs')
           .update({
             phone_number_id: phoneNumberId,
             waba_id: wabaId,
@@ -117,7 +117,7 @@ export default function OnboardingPage() {
         if (updateError) throw updateError;
       } else {
         const { error: insertError } = await supabase
-          .from('whatsapp_configs')
+          .from('whatsapp_portal_configs')
           .insert({
             user_id: userId,
             phone_number_id: phoneNumberId,

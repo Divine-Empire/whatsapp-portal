@@ -16,7 +16,7 @@ export async function GET(
 
     // Find the message associated with this mediaId to verify ownership/user context
     const { data: message } = await supabase
-      .from('messages')
+      .from('whatsapp_portal_messages')
       .select('user_id')
       .contains('media', [{ id: mediaId }])
       .limit(1)
@@ -29,7 +29,7 @@ export async function GET(
     if (!userId) {
       // Find the first active config
       const { data: firstConfig } = await supabase
-        .from('whatsapp_configs')
+        .from('whatsapp_portal_configs')
         .select('user_id')
         .limit(1)
         .maybeSingle();
@@ -42,7 +42,7 @@ export async function GET(
     }
 
     const { data: config } = await supabase
-      .from('whatsapp_configs')
+      .from('whatsapp_portal_configs')
       .select('access_token')
       .eq('user_id', userId)
       .single();

@@ -11,13 +11,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // We can fetch from the `messages` table joined with conversations > contacts
+    // We can fetch from the `whatsapp_portal_messages` table joined with conversations > contacts
     const { data, error } = await supabase
-      .from('messages')
+      .from('whatsapp_portal_messages')
       .select(`
         id, content, status, direction, message_type, created_at,
-        conversation:conversations(
-          contact:contacts(name, phone_number)
+        conversation:whatsapp_portal_conversations(
+          contact:whatsapp_portal_contacts(name, phone_number)
         )
       `)
       .eq('user_id', user.id)

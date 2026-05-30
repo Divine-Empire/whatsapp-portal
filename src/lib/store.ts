@@ -69,13 +69,13 @@ export const useDashStore = create<DashStore>((set, get) => ({
     set({ loadingConversations: true, error: null });
     try {
       const { data, error } = await supabase
-        .from('conversations')
+        .from('whatsapp_portal_conversations')
         .select(`
           id,
           last_message,
           last_message_at,
           unread_count,
-          contacts (
+          whatsapp_portal_contacts (
             name,
             phone_number,
             profile_name
@@ -88,8 +88,8 @@ export const useDashStore = create<DashStore>((set, get) => ({
       const convs = (data || []).map((row: any) => ({
         id: row.id,
         contact: {
-          name: row.contacts?.name || row.contacts?.profile_name || row.contacts?.phone_number || 'Unknown',
-          phone_number: row.contacts?.phone_number || ''
+          name: row.whatsapp_portal_contacts?.name || row.whatsapp_portal_contacts?.profile_name || row.whatsapp_portal_contacts?.phone_number || 'Unknown',
+          phone_number: row.whatsapp_portal_contacts?.phone_number || ''
         },
         last_message: row.last_message || '',
         last_message_at: row.last_message_at,
@@ -109,7 +109,7 @@ export const useDashStore = create<DashStore>((set, get) => ({
     set({ loadingMessages: true });
     try {
       const { data, error } = await supabase
-        .from('messages')
+        .from('whatsapp_portal_messages')
         .select('*')
         .eq('conversation_id', conversationId)
         .order('created_at', { ascending: true });

@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
     }
 
     const { data: config } = await supabase
-      .from('whatsapp_configs')
+      .from('whatsapp_portal_configs')
       .select('access_token, phone_number_id')
       .eq('user_id', user.id)
       .single();

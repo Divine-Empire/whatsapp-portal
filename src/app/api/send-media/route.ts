@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
     }
 
     const { data: config } = await supabase
-      .from('whatsapp_configs')
+      .from('whatsapp_portal_configs')
       .select('access_token, phone_number_id')
       .eq('user_id', user.id)
       .single();
@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
 
     // 3. Save outbound message to Supabase
     const { data: savedMsg, error: msgError } = await supabase
-      .from('messages')
+      .from('whatsapp_portal_messages')
       .insert({
         user_id: user.id,
         conversation_id: conversationId,
@@ -106,7 +106,7 @@ export async function POST(request: NextRequest) {
     // 4. Update conversation's last message info
     if (conversationId) {
       await supabase
-        .from('conversations')
+        .from('whatsapp_portal_conversations')
         .update({
           last_message: caption || `📂 ${type.toUpperCase()}: ${uploadFile.name}`,
           last_message_at: new Date().toISOString(),
