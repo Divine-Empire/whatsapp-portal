@@ -13,14 +13,14 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   const router = useRouter();
 
   useEffect(() => {
-    if (!isLoggedIn) {
-      router.replace('/login');
-    }
+    // if (!isLoggedIn) {
+    //   router.replace('/login');
+    // }
   }, [isLoggedIn, router]);
 
-  if (!isLoggedIn) {
-    return null;
-  }
+  // if (!isLoggedIn) {
+  //   return null;
+  // }
 
   return <>{children}</>;
 };

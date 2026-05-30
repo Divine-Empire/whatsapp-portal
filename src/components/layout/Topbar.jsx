@@ -60,14 +60,14 @@ export default function Topbar() {
           <RefreshCw size={16} className={refreshing ? 'animate-spin-slow' : ''} />
         </button>
 
-        {/* Match Replies — hidden on mobile */}
-        <button
+        {/* Match Replies — hidden per user request */}
+        {/* <button
           onClick={handleMatchReplies}
           className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--color-wa-border)] text-[var(--color-wa-text)] text-[12px] font-medium hover:border-[#25D366] hover:text-[#25D366] transition"
         >
           <Zap size={13} />
           Match Replies
-        </button>
+        </button> */}
 
         {/* Bell */}
         <button className="p-2 rounded-lg text-[var(--color-wa-muted)] hover:text-[var(--color-wa-text)] hover:bg-[var(--color-wa-bg)] transition relative">
@@ -86,10 +86,10 @@ export default function Topbar() {
           </Link>
           <button
             onClick={logout}
-            className="p-1.5 text-[var(--color-wa-muted)] hover:text-red-500 transition"
+            className="p-2 rounded-lg text-[var(--color-wa-muted)] hover:text-red-500 hover:bg-[var(--color-wa-bg)] transition"
             title="Logout"
           >
-            <LogOut size={15} />
+            <LogOut size={16} />
           </button>
         </div>
       </div>

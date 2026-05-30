@@ -115,7 +115,7 @@ export default function TemplateSender({ onSend, onClose }: TemplateSenderProps)
 
   if (loading) {
     return (
-      <div className="absolute bottom-full left-0 right-0 mb-2 mx-4 bg-[#1f2c34] border border-[#2a3942] rounded-xl shadow-2xl p-6 z-30">
+      <div className="absolute bottom-full left-0 right-0 mb-2 mx-4 bg-[#1f2c34] border border-[#2a3942] rounded-xl shadow-2xl p-6 z-30 min-h-[360px] flex flex-col justify-center">
         <div className="flex items-center justify-center gap-3 text-[#8696a0]">
           <Loader2 size={20} className="animate-spin" />
           <span className="text-sm">Loading templates...</span>
@@ -125,7 +125,7 @@ export default function TemplateSender({ onSend, onClose }: TemplateSenderProps)
   }
 
   return (
-    <div className="absolute bottom-full left-0 right-0 mb-2 mx-4 bg-[#1f2c34] border border-[#2a3942] rounded-xl shadow-2xl z-30 max-h-[70vh] flex flex-col">
+    <div className="absolute bottom-full left-0 right-0 mb-2 mx-4 bg-[#1f2c34] border border-[#2a3942] rounded-xl shadow-2xl z-30 flex flex-col" style={{ maxHeight: 'min(85vh, 560px)', minHeight: '360px' }}>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-[#2a3942]/50 shrink-0">
         <div className="flex items-center gap-2 text-[#e9edef]">
@@ -140,7 +140,7 @@ export default function TemplateSender({ onSend, onClose }: TemplateSenderProps)
         </button>
       </div>
 
-      <div className="overflow-y-auto flex-1 p-4 space-y-4">
+      <div className="overflow-y-auto flex-1 p-4 space-y-4 min-h-[200px]">
         {/* Template Selector */}
         <div ref={dropdownRef} className="relative">
           <label className="text-[11px] uppercase tracking-wider text-[#8696a0] font-medium mb-1.5 block">
@@ -159,7 +159,7 @@ export default function TemplateSender({ onSend, onClose }: TemplateSenderProps)
           </button>
 
           {showDropdown && (
-            <div className="absolute top-full left-0 right-0 mt-1 bg-[#2a3942] rounded-lg shadow-xl border border-[#3b4a54] max-h-[200px] overflow-y-auto z-40">
+            <div className="absolute top-full left-0 right-0 mt-1 bg-[#2a3942] rounded-lg shadow-xl border border-[#3b4a54] max-h-[300px] overflow-y-auto z-40">
               {templates.length === 0 ? (
                 <div className="px-3 py-4 text-sm text-[#8696a0] text-center">
                   No approved templates found

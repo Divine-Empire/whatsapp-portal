@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+#script
+migrate-csv.js
+migrate.js
+*.csv
+backend.js

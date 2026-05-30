@@ -1,4 +1,12 @@
 import axios from 'axios';
+import {
+  WHATSAPP_NORMALIZABLE_IMAGE_MIME_TYPES,
+  WHATSAPP_SUPPORTED_DOCUMENT_MIME_TYPES,
+  WHATSAPP_SUPPORTED_FORMATS_LABEL,
+  WHATSAPP_SUPPORTED_VIDEO_MIME_TYPES,
+  getSupportedMimeType,
+  isCsvFile,
+} from '@/lib/mediaSupport';
 
 interface SendMessageParams {
   to: string;
@@ -131,20 +139,25 @@ export async function fetchWhatsAppTemplates({
 }: {
   wabaId: string;
   accessToken: string;
-}): Promise<{ name: string; category: string; body: string; language: string }[]> {
+}): Promise<{ name: string; category: string; header: string; body: string; footer: string; language: string }[]> {
   try {
     const url = `https://graph.facebook.com/v19.0/${wabaId}/message_templates?status=APPROVED&fields=name,category,components,language&limit=100`;
     const response = await axios.get(url, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
-    const templates: { name: string; category: string; body: string; language: string }[] = [];
+    const templates: { name: string; category: string; header: string; body: string; footer: string; language: string }[] = [];
     for (const t of response.data?.data || []) {
+      const headerComp = (t.components || []).find((c: any) => c.type === 'HEADER');
       const bodyComp = (t.components || []).find((c: any) => c.type === 'BODY');
+      const footerComp = (t.components || []).find((c: any) => c.type === 'FOOTER');
+
       templates.push({
         name: t.name,
         category: (t.category || '').toLowerCase(),
+        header: headerComp?.text || '',
         body: bodyComp?.text || '',
+        footer: footerComp?.text || '',
         language: t.language || '',
       });
     }
@@ -242,16 +255,30 @@ export async function resolveTemplateFinalText({
   const templates = await fetchWhatsAppTemplates({ wabaId, accessToken });
   
   // Find the exact template by name
-  const match = templates.find(
-    (t) => t.name === templateName
-  );
+  const match = templates.find((t) => t.name === templateName);
 
   if (!match || !match.body) {
     return `[Template: ${templateName}]`;
   }
 
-  // Substitute {{1}}, {{2}} with actual parameter values
-  return resolveTemplateTextWithParams(match.body, components);
+  // Resolve all parts (Header + Body + Footer)
+  const headerComp = components.find(c => c.type === 'header' || c.type === 'HEADER');
+
+  let finalHeader = match.header;
+  if (headerComp?.parameters) {
+    headerComp.parameters.forEach((param: any, idx: number) => {
+      finalHeader = finalHeader.replace(`{{${idx + 1}}}`, param.text || param.value || '');
+    });
+  }
+
+  let finalBody = resolveTemplateTextWithParams(match.body, components);
+
+  let fullContent = "";
+  if (finalHeader) fullContent += `*${finalHeader}*\n\n`;
+  fullContent += finalBody;
+  if (match.footer) fullContent += `\n\n_${match.footer}_`;
+
+  return fullContent;
 }
 
 export async function sendWhatsAppTemplate({
@@ -277,6 +304,165 @@ export async function sendWhatsAppTemplate({
         },
         components: components,
       },
+      biz_opaque_callback_data: templateName, // Embed template name for webhook tracking
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    }
+  );
+
+  const waMessageId = response.data?.messages?.[0]?.id;
+  if (!waMessageId) {
+    throw new Error('No message ID returned from WhatsApp API');
+  }
+
+  return { messageId: waMessageId };
+}
+
+interface SendMediaMessageParams {
+  to: string;
+  mediaId: string;
+  mediaType: 'image' | 'video' | 'document';
+  caption?: string;
+  fileName?: string;
+  accessToken: string;
+  phoneNumberId: string;
+}
+
+/**
+ * Upload a media file to Meta's WhatsApp servers
+ * Uses native fetch (not axios) — axios cannot serialize browser File/Blob objects
+ * as binary in Node.js server context, causing ETIMEDOUT errors.
+ * Also normalizes images with sharp to ensure Meta compatibility (error 131053).
+ */
+export async function uploadWhatsAppMedia({
+  file,
+  accessToken,
+  phoneNumberId,
+}: {
+  file: File | Blob;
+  accessToken: string;
+  phoneNumberId: string;
+}): Promise<string> {
+  const url = `https://graph.facebook.com/v19.0/${phoneNumberId}/media`;
+
+  const rawMime = getSupportedMimeType(file as File) || 'application/octet-stream';
+  const fileName = (file as File).name || 'media';
+
+  // Validate Meta-supported types
+  const isImage    = WHATSAPP_NORMALIZABLE_IMAGE_MIME_TYPES.includes(rawMime);
+  const isVideo    = WHATSAPP_SUPPORTED_VIDEO_MIME_TYPES.includes(rawMime);
+  const isDocument = WHATSAPP_SUPPORTED_DOCUMENT_MIME_TYPES.includes(rawMime);
+  const isCsv      = isCsvFile(file as File);
+
+  if (!isImage && !isVideo && !isDocument && !isCsv) {
+    throw new Error(
+      `Unsupported file type "${rawMime}". Meta WhatsApp supports: ${WHATSAPP_SUPPORTED_FORMATS_LABEL}.`
+    );
+  }
+
+  // Read raw bytes
+  const arrayBuffer = await file.arrayBuffer();
+  let uploadBuffer: Buffer = Buffer.from(arrayBuffer);
+  let uploadMime: string   = rawMime;
+  let uploadName: string   = fileName;
+
+  if (isCsv) {
+    // WhatsApp Cloud does not accept text/csv, so send CSVs as equivalent XLSX documents.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const XLSX = require('xlsx') as typeof import('xlsx');
+    const workbook = XLSX.read(uploadBuffer.toString('utf8'), { type: 'string' });
+    const xlsxBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' });
+    uploadBuffer = Buffer.from(xlsxBuffer);
+    uploadMime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    uploadName = fileName.replace(/\.csv$/i, '.xlsx');
+    console.log(`CSV converted to XLSX for Meta upload: ${uploadName}`);
+  }
+
+  // ── Normalize images with sharp ─────────────────────────────────────────
+  // Meta requires: JPG/PNG, RGB or RGBA, 8-bit per channel.
+  // This handles CMYK, 16-bit, WebP, HEIC, AVIF, etc. automatically.
+  if (isImage) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const sharp = require('sharp') as typeof import('sharp');
+      uploadBuffer = await sharp(uploadBuffer)
+        .toColorspace('srgb')          // force RGB (fixes CMYK issues)
+        .jpeg({ quality: 90, mozjpeg: true })  // output safe 8-bit JPEG
+        .toBuffer();
+      uploadMime = 'image/jpeg';
+      uploadName = fileName.replace(/\.[^.]+$/, '.jpg');
+      console.log(`📸 Image normalized to JPEG for Meta upload: ${uploadName}`);
+    } catch (sharpErr) {
+      console.warn('⚠️ sharp normalization failed, uploading original:', sharpErr);
+      // fall through with original buffer
+    }
+  }
+
+  // ── Build FormData and upload ───────────────────────────────────────────
+  // Use Uint8Array — Buffer<ArrayBufferLike> is not directly assignable to BlobPart in TS strict mode
+  const blob     = new Blob([new Uint8Array(uploadBuffer)], { type: uploadMime });
+  const formData = new FormData();
+  formData.append('file', blob, uploadName);
+  formData.append('type', uploadMime);
+  formData.append('messaging_product', 'whatsapp');
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errBody = await response.json().catch(() => ({}));
+    const errMsg = (errBody as any)?.error?.message || `Meta API error ${response.status}`;
+    throw new Error(errMsg);
+  }
+
+  const data     = await response.json() as { id?: string };
+  const mediaId  = data?.id;
+  if (!mediaId) {
+    throw new Error('No media ID returned from Meta upload API');
+  }
+  return mediaId;
+}
+
+
+/**
+ * Send a media message (image, video, document) via WhatsApp Cloud API
+ */
+export async function sendWhatsAppMediaMessage({
+  to,
+  mediaId,
+  mediaType,
+  caption,
+  fileName,
+  accessToken,
+  phoneNumberId,
+}: SendMediaMessageParams): Promise<SendMessageResponse> {
+  const url = `https://graph.facebook.com/v19.0/${phoneNumberId}/messages`;
+
+  const mediaObject: any = { id: mediaId };
+  if (caption) {
+    mediaObject.caption = caption;
+  }
+  if (mediaType === 'document' && fileName) {
+    mediaObject.filename = fileName;
+  }
+
+  const response = await axios.post(
+    url,
+    {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to,
+      type: mediaType,
+      [mediaType]: mediaObject,
     },
     {
       headers: {

@@ -14,12 +14,19 @@ for (const line of lines) {
 const supabase = createClient(SUPA_URL, SUPA_KEY);
 
 async function check() {
-  const { data: configs, error } = await supabase.from('whatsapp_configs').select('*');
-  if (error) {
-    console.error("Error fetching configs:", error);
-  } else {
-    console.log("whatsapp_configs contents:", configs);
-  }
+  console.log("Checking tables...");
+  
+  const { data: contacts, error: err1 } = await supabase.from('contacts').select('*').limit(1);
+  if (err1) console.error("Contacts error:", err1.message);
+  else console.log("Contacts sample row:", contacts);
+
+  const { data: convs, error: err2 } = await supabase.from('conversations').select('*').limit(1);
+  if (err2) console.error("Conversations error:", err2.message);
+  else console.log("Conversations sample row:", convs);
+
+  const { data: messages, error: err3 } = await supabase.from('messages').select('*').limit(1);
+  if (err3) console.error("Messages error:", err3.message);
+  else console.log("Messages sample row:", messages);
 }
 
 check();

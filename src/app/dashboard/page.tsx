@@ -1,2 +1,5 @@
-import OverviewPage from '@/pages_mock/OverviewPage';
-export default function Page() { return <OverviewPage />; }
+import { redirect } from 'next/navigation';
+
+export default function Page() { 
+  redirect('/dashboard/inbox'); 
+}

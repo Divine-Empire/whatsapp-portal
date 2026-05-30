@@ -301,7 +301,8 @@ export async function POST(
       for (const status of changes.statuses) {
         const waMessageId = status.id;
         const statusValue = status.status; // sent, delivered, read, failed
-        const callbackData = status.biz_opaque_callback_data; // This is the gold!
+        const opaque = status.biz_opaque_callback_data; // This is the gold!
+        const templateName = opaque?.startsWith("tpl:") ? opaque.slice(4) : opaque;
         const timestamp = status.timestamp
           ? new Date(parseInt(status.timestamp) * 1000).toISOString()
           : new Date().toISOString();
@@ -326,8 +327,8 @@ export async function POST(
         }
 
         // If we have callback data (template name), use it
-        if (callbackData) {
-          updateData.template_name = callbackData;
+        if (templateName) {
+          updateData.template_name = templateName;
         }
 
         // Add returning representation to catch when a record is not found!
@@ -361,19 +362,19 @@ export async function POST(
 
             // Resolve the actual template body text from Meta's API
             let templateContent = "[Template Message]";
-            let resolvedTemplateName = callbackData || "unknown";
+            let resolvedTemplateName = templateName || "unknown";
 
             if (config?.waba_id && config?.access_token) {
-              const pricingCategory = status.pricing?.category; // e.g. \"utility\", \"marketing\"
+              const pricingCategory = status.pricing?.category; // e.g. "utility", "marketing"
               console.log(
-                `📋 Fetching templates from Meta (WABA: ${config.waba_id}, category: ${pricingCategory}, hint: ${callbackData})...`,
+                `📋 Fetching templates from Meta (WABA: ${config.waba_id}, category: ${pricingCategory}, hint: ${templateName})...`,
               );
               const templates = await fetchWhatsAppTemplates({
                 wabaId: config.waba_id,
                 accessToken: config.access_token,
               });
               
-              const info = resolveTemplateInfo(templates, pricingCategory, callbackData);
+              const info = resolveTemplateInfo(templates, pricingCategory, templateName);
               templateContent = info.body;
               resolvedTemplateName = info.name;
               

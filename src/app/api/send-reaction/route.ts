@@ -1,18 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/server';
 import { sendWhatsAppReaction } from '@/lib/whatsapp';
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const supabase = createAdminClient();
+    const user = { id: '84c43f3b-dd3b-4762-8ed2-731cdeea4e8a' };
 
     const { to, messageId, emoji } = await request.json();
 

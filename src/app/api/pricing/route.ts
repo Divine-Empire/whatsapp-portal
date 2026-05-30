@@ -25,7 +25,8 @@ export async function GET() {
 
     // Filter to prioritize user-specific rows if duplicates exist
     const uniquePricing: Record<string, any> = {};
-    pricing.forEach(p => {
+    const pricingList: any[] = pricing || [];
+    pricingList.forEach((p: any) => {
       if (!uniquePricing[p.category] || p.user_id !== null) {
         uniquePricing[p.category] = p;
       }

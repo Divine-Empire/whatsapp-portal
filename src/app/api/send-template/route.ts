@@ -1,25 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/server';
 import { sendWhatsAppTemplate, resolveTemplateFinalText } from '@/lib/whatsapp';
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
+    const supabase = createAdminClient();
 
     const body = await request.json();
     const { to, templateName, languageCode, components, exactText, conversationId, userId } = body;
 
-    // Get current authenticated user (if called from browser)
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    // Support backend-to-backend API calls by passing userId in JSON body
-    const activeUserId = user?.id || userId;
-
-    if (!activeUserId) {
-      return NextResponse.json({ error: 'Unauthorized. Provide session cookie or "userId" in JSON body.' }, { status: 401 });
-    }
+    const activeUserId = userId || '84c43f3b-dd3b-4762-8ed2-731cdeea4e8a';
 
     if (!to || !templateName) {
       return NextResponse.json(

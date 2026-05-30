@@ -33,30 +33,23 @@ export function AppProvider({ children }) {
   useEffect(() => {
     // 1. Initial Session Fetch
     const initSession = async () => {
-      const { data: { session: currentSession } } = await supabase.auth.getSession();
-      
-      if (!currentSession) {
-        setIsInitializing(false);
-        router.push('/login');
-        return;
-      }
-      
+      // Bypass auth since data comes directly from sheet
       setSession({
-        email: currentSession.user.email,
-        name: currentSession.user.user_metadata?.name || 'User',
-        id: currentSession.user.id
+        email: 'user@sheet.com',
+        name: 'Sheet User',
+        id: 'sheet_user'
       });
       setIsInitializing(false);
-      handleRefresh(); // Fetch data immediately after logging in
+      handleRefresh(); // Fetch data immediately
     };
 
     initSession();
 
-    // 2. Auth State Listener
+    // 2. Auth State Listener (disabled redirect)
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
       if (['SIGNED_OUT', 'USER_DELETED'].includes(event)) {
         setSession(null);
-        router.push('/login');
+        // router.push('/login');
       } else if (event === 'SIGNED_IN' && currentSession) {
         setSession({
           email: currentSession.user.email,
@@ -142,7 +135,7 @@ export function AppProvider({ children }) {
         setLastSync(new Date());
       } else if (res.status === 401) {
         // Handle unauthorized inside refresh
-        router.push('/login');
+        // router.push('/login');
       }
     } catch (e) {
       console.error('Failed to fetch stats:', e);

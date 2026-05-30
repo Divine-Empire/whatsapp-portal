@@ -51,16 +51,16 @@ export async function proxy(request: NextRequest) {
 
   // If not logged in and trying to access protected route → redirect to login
   if (!user && !isPublicRoute) {
-    const url = request.nextUrl.clone();
-    url.pathname = '/login';
-    return NextResponse.redirect(url);
+    // const url = request.nextUrl.clone();
+    // url.pathname = '/login';
+    // return NextResponse.redirect(url);
   }
 
   // If logged in and on login/signup → redirect to dashboard
   if (user && (pathname === '/login' || pathname === '/signup')) {
-    const url = request.nextUrl.clone();
-    url.pathname = '/dashboard';
-    return NextResponse.redirect(url);
+    // const url = request.nextUrl.clone();
+    // url.pathname = '/dashboard';
+    // return NextResponse.redirect(url);
   }
 
   return supabaseResponse;

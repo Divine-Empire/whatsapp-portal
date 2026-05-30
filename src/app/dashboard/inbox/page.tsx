@@ -1,13 +1,24 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { createClient } from '@/lib/supabase/client';
 import { useDashStore } from '@/lib/store';
+import {
+  CSV_MIME_TYPES,
+  WHATSAPP_DOCUMENT_ACCEPT,
+  WHATSAPP_SUPPORTED_DOCUMENT_MIME_TYPES,
+  WHATSAPP_SUPPORTED_FORMATS_LABEL,
+  WHATSAPP_SUPPORTED_IMAGE_MIME_TYPES,
+  WHATSAPP_SUPPORTED_VIDEO_MIME_TYPES,
+  getFileExtension,
+  getSupportedMimeType,
+  isCsvFile,
+} from '@/lib/mediaSupport';
 import dynamic from 'next/dynamic';
+import TemplateSender from '@/components/dash/TemplateSender';
 import {
   Search, Send, Image as ImageIcon, FileText, Smile, Phone,
   MoreVertical, CheckCheck, Check, Archive, VolumeX, ShieldAlert,
-  UserX, UserCheck, ChevronLeft, SmilePlus, Download, Play, Paperclip,
+  UserX, UserCheck, ChevronLeft, ChevronRight, SmilePlus, Download, Play, Paperclip, X, ZoomIn, ZoomOut,
 } from 'lucide-react';
 
 // Dynamic import — EmojiPicker only runs in browser (no SSR)
@@ -34,6 +45,73 @@ function MsgStatus({ status }: any) {
   return <Check size={13} color="var(--color-wa-muted)" />;
 }
 
+function renderWhatsAppInline(text: string, keyPrefix: string) {
+  const parts: React.ReactNode[] = [];
+  const pattern = /(\*[^*\n]+\*|_[^_\n]+_)/g;
+  let lastIndex = 0;
+  let matchIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+
+    const value = match[0];
+    const inner = value.slice(1, -1);
+    const key = `${keyPrefix}-${matchIndex}`;
+
+    if (value.startsWith('*')) {
+      parts.push(<strong key={key} className="font-semibold">{inner}</strong>);
+    } else {
+      parts.push(<span key={key} className="italic">{inner}</span>);
+    }
+
+    lastIndex = match.index + value.length;
+    matchIndex += 1;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts.length > 0 ? parts : text;
+}
+
+function WhatsAppMessageText({
+  text,
+  isTemplate = false,
+  className = '',
+}: {
+  text: string;
+  isTemplate?: boolean;
+  className?: string;
+}) {
+  const lines = text.split('\n');
+
+  return (
+    <div className={`text-[13px] leading-relaxed break-words ${className}`}>
+      {lines.map((line, index) => {
+        if (line.length === 0) {
+          return <div key={`blank-${index}`} className="h-3" />;
+        }
+
+        const trimmed = line.trim();
+        const isFooterLine = isTemplate && /^_[^_]+_$/.test(trimmed);
+
+        return (
+          <div
+            key={`${index}-${line}`}
+            className={isFooterLine ? 'text-[var(--color-wa-muted)]' : undefined}
+          >
+            {renderWhatsAppInline(line, `line-${index}`)}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /* ─── Page ───────────────────────────────────────────────────── */
 
 export default function InboxPage() {
@@ -53,11 +131,26 @@ export default function InboxPage() {
   const [activeFilter, setActiveFilter] = useState('all');
   const [showMenu, setShowMenu]         = useState(false);
   const [showEmoji, setShowEmoji]       = useState(false);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [reactingToId, setReactingToId] = useState<string | null>(null);
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
+
+  // Media preview & upload states
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [mediaPreviewUrl, setMediaPreviewUrl] = useState<string | null>(null);
+  const [mediaType, setMediaType] = useState<'image' | 'video' | 'document' | null>(null);
+  const [mediaCaption, setMediaCaption] = useState('');
+  const [uploadingMedia, setUploadingMedia] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  // Full-screen WhatsApp-style media viewer states
+  const [viewerMessage, setViewerMessage] = useState<any>(null);
+  const [zoomScale, setZoomScale] = useState(1);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const imageInputRef  = useRef<HTMLInputElement>(null);
   const docInputRef    = useRef<HTMLInputElement>(null);
+  const attachRef      = useRef<HTMLDivElement>(null);
 
   /* ─ data fetch & realtime ──────────────────────────────────── */
 
@@ -66,27 +159,15 @@ export default function InboxPage() {
   }, [fetchConversations]);
 
   useEffect(() => {
-    const sb = createClient();
-    const channel = sb
-      .channel('dashboard-realtime')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages' },
-        (payload: any) => useDashStore.getState().handleMessageInsert(payload.new as any)
-      )
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'messages' },
-        (payload: any) => useDashStore.getState().handleMessageUpdate(payload.new as any)
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'conversations' },
-        (payload: any) => useDashStore.getState().handleConversationUpdate(payload.new as any)
-      )
-      .subscribe();
+    const interval = setInterval(() => {
+      useDashStore.getState().fetchConversations();
+      const activeId = useDashStore.getState().activeConversationId;
+      if (activeId) {
+        useDashStore.getState().fetchMessages(activeId);
+      }
+    }, 5000);
 
-    return () => { sb.removeChannel(channel); };
+    return () => clearInterval(interval);
   }, []);
 
   /* ─ derived ────────────────────────────────────────────────── */
@@ -110,6 +191,18 @@ export default function InboxPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length, activeConversationId]);
 
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (attachRef.current && !attachRef.current.contains(event.target as Node)) {
+        setShowAttachMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
   /* ─ handlers ───────────────────────────────────────────────── */
 
   const handleSend = async (e: React.FormEvent) => {
@@ -121,6 +214,35 @@ export default function InboxPage() {
       setShowEmoji(false);
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleSendTemplate = async (
+    templateName: string,
+    languageCode: string,
+    components: any[],
+    resolvedText: string
+  ) => {
+    if (!selectedContact?.phone_number || !activeConversationId) return;
+    try {
+      const res = await fetch('/api/send-template', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: selectedContact.phone_number,
+          templateName,
+          languageCode,
+          components,
+          conversationId: activeConversationId,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to send template');
+      }
+    } catch (err) {
+      console.error('Send template failed:', err);
+      throw err;
     }
   };
 
@@ -136,12 +258,163 @@ export default function InboxPage() {
     docInputRef.current?.click();
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>, type: string) => {
+  const convertCsvToXlsx = async (file: File) => {
+    const XLSX = await import('xlsx');
+    const csvText = await file.text();
+    const workbook = XLSX.read(csvText, { type: 'string' });
+    const xlsxBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+    const xlsxName = file.name.replace(/\.csv$/i, '.xlsx');
+
+    return new File([xlsxBuffer], xlsxName, {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      lastModified: file.lastModified,
+    });
+  };
+
+  const withDocumentMimeType = (file: File) => {
+    const mimeType = getSupportedMimeType(file);
+
+    if (!mimeType || mimeType === file.type) {
+      return file;
+    }
+
+    return new File([file], file.name, {
+      type: mimeType,
+      lastModified: file.lastModified,
+    });
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>, type: string) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    alert(`Selected ${type}: ${file.name}\n(Media upload to WhatsApp will be connected next)`);
-    // Reset the input so the same file can be re-selected
+
+    // Meta-supported MIME types
+    const SUPPORTED: Record<string, string[]> = {
+      image:    [...WHATSAPP_SUPPORTED_IMAGE_MIME_TYPES],
+      video:    [...WHATSAPP_SUPPORTED_VIDEO_MIME_TYPES],
+      document: [...WHATSAPP_SUPPORTED_DOCUMENT_MIME_TYPES, ...CSV_MIME_TYPES],
+    };
+    const UNSUPPORTED_IMAGE_MSG: Record<string, string> = {
+      'image/webp': 'WebP',
+      'image/heic': 'HEIC',
+      'image/heif': 'HEIF',
+      'image/avif': 'AVIF',
+      'image/bmp':  'BMP',
+      'image/tiff': 'TIFF',
+      'image/gif':  'GIF',
+    };
+
+    let uploadFile = file;
+    const detectedMimeType = getSupportedMimeType(file);
+
+    // Check if it's an unsupported image format
+    if (UNSUPPORTED_IMAGE_MSG[detectedMimeType]) {
+      setUploadError(
+        `❌ ${UNSUPPORTED_IMAGE_MSG[detectedMimeType]} format not supported by WhatsApp. Please convert to JPEG or PNG first.`
+      );
+      setSelectedFile(file); // still show the preview overlay so user sees error
+      setMediaType('image');
+      setMediaPreviewUrl(null);
+      e.target.value = '';
+      return;
+    }
+
+    // Check general support
+    if (isCsvFile(file)) {
+      try {
+        uploadFile = await convertCsvToXlsx(file);
+      } catch (err) {
+        console.error('CSV conversion failed:', err);
+        setUploadError('❌ Could not convert this CSV to XLSX. Please check the file and try again.');
+        setSelectedFile(file);
+        setMediaType('document');
+        setMediaPreviewUrl(null);
+        e.target.value = '';
+        return;
+      }
+    } else if (type === 'document') {
+      uploadFile = withDocumentMimeType(file);
+    }
+
+    const allSupported = [...SUPPORTED.image, ...SUPPORTED.video, ...SUPPORTED.document];
+    const uploadMimeType = getSupportedMimeType(uploadFile);
+    if (!allSupported.includes(detectedMimeType) && !allSupported.includes(uploadMimeType)) {
+      const format = uploadMimeType || getFileExtension(file.name).toUpperCase() || 'unknown';
+      setUploadError(`❌ Unsupported format (${format}). WhatsApp supports: ${WHATSAPP_SUPPORTED_FORMATS_LABEL}.`);
+      setSelectedFile(file);
+      setMediaType('document');
+      setMediaPreviewUrl(null);
+      e.target.value = '';
+      return;
+    }
+
+    setSelectedFile(uploadFile);
+    setMediaCaption('');
+    setUploadError(null);
+
+    // Determine type: 'image' | 'video' | 'document'
+    if (uploadMimeType.startsWith('image/')) {
+      setMediaType('image');
+      setMediaPreviewUrl(URL.createObjectURL(uploadFile));
+    } else if (uploadMimeType.startsWith('video/')) {
+      setMediaType('video');
+      setMediaPreviewUrl(URL.createObjectURL(uploadFile));
+    } else {
+      setMediaType('document');
+      setMediaPreviewUrl(null);
+    }
+
+    // Reset input value so it can be selected again
     e.target.value = '';
+  };
+
+  const clearSelectedMedia = () => {
+    if (mediaPreviewUrl) {
+      URL.revokeObjectURL(mediaPreviewUrl);
+    }
+    setSelectedFile(null);
+    setMediaPreviewUrl(null);
+    setMediaType(null);
+    setMediaCaption('');
+    setUploadingMedia(false);
+    setUploadError(null);
+  };
+
+  const handleSendMedia = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedFile || !activeConversationId || !selectedContact?.phone_number) return;
+
+    setUploadingMedia(true);
+    setUploadError(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      formData.append('to', selectedContact.phone_number);
+      formData.append('type', mediaType || 'document');
+      formData.append('conversationId', activeConversationId);
+      if (mediaCaption.trim()) {
+        formData.append('caption', mediaCaption.trim());
+      }
+
+      const res = await fetch('/api/send-media', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to upload and send media');
+      }
+
+      // Success - clear states
+      clearSelectedMedia();
+    } catch (err: any) {
+      console.error('Media upload error:', err);
+      setUploadError(err.message || 'Failed to send media file');
+    } finally {
+      setUploadingMedia(false);
+    }
   };
 
   /* ─ render ─────────────────────────────────────────────────── */
@@ -183,11 +456,11 @@ export default function InboxPage() {
 
         {/* List */}
         <div className="flex-1 overflow-y-auto">
-          {filtered.map(c => {
+          {filtered.map((c, idx) => {
             const name = c.contact?.name || c.contact?.phone_number || 'Unknown';
             return (
               <div
-                key={c.id}
+                key={c.id ? `${c.id}-${idx}` : idx}
                 onClick={() => setActiveConversation(c.id)}
                 className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-[var(--color-wa-bg)] transition border-b border-[var(--color-wa-border)]/50
                   ${activeConversationId === c.id ? 'bg-[var(--color-wa-bg)]' : ''}`}
@@ -266,7 +539,100 @@ export default function InboxPage() {
                 <div className="relative group max-w-[85%] md:max-w-[70%]">
                   {/* Bubble */}
                   <div className={`${isOut ? 'chat-bubble-out' : 'chat-bubble-in'} relative`}>
-                    <p className="text-[14px] leading-relaxed whitespace-pre-wrap">{m.content}</p>
+                    {/* Media Render */}
+                    {(() => {
+                      const mediaObj = m.media && Array.isArray(m.media) && m.media.length > 0 ? m.media[0] : null;
+                      const mediaId = mediaObj?.id || m.media_url;
+                      const mediaType = m.message_type;
+
+                      if (!mediaId) {
+                        return (
+                          <WhatsAppMessageText
+                            text={m.content || ''}
+                            isTemplate={mediaType === 'template'}
+                          />
+                        );
+                      }
+
+                      const fileSrc = mediaId.startsWith('http') ? mediaId : `/api/media/${mediaId}`;
+
+                      switch (mediaType) {
+                        case 'image':
+                          return (
+                            <div className="flex flex-col gap-1.5">
+                              <div className="rounded-lg overflow-hidden border border-[var(--color-wa-border)] bg-black/5 max-w-[280px]">
+                                <img
+                                  src={fileSrc}
+                                  alt="Image"
+                                  className="w-full h-auto max-h-[220px] object-cover cursor-pointer hover:opacity-95 transition-opacity"
+                                  onClick={() => {
+                                    setViewerMessage(m);
+                                    setZoomScale(1);
+                                  }}
+                                />
+                              </div>
+                              {m.content && m.content !== '[Image]' && (
+                                <WhatsAppMessageText text={m.content} className="mt-1" />
+                              )}
+                            </div>
+                          );
+                        case 'video':
+                          return (
+                            <div className="flex flex-col gap-1.5">
+                              <div className="rounded-lg overflow-hidden border border-[var(--color-wa-border)] bg-black/5 max-w-[280px]">
+                                <video
+                                  src={fileSrc}
+                                  controls
+                                  className="w-full h-auto max-h-[220px] object-contain"
+                                />
+                              </div>
+                              {m.content && m.content !== '[Video]' && (
+                                <WhatsAppMessageText text={m.content} className="mt-1" />
+                              )}
+                            </div>
+                          );
+                        case 'document': {
+                          const fileName = m.file_name || mediaObj?.fileName || 'Document';
+                          const fileSizeStr = m.file_size
+                            ? `${(m.file_size / 1024 / 1024).toFixed(2)} MB`
+                            : mediaObj?.file_size
+                            ? `${(mediaObj.file_size / 1024 / 1024).toFixed(2)} MB`
+                            : 'Unknown size';
+                          return (
+                            <div className="flex flex-col gap-1.5">
+                              <a
+                                href={fileSrc}
+                                download={fileName}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="flex items-center gap-3 p-2.5 bg-[var(--color-wa-bg)] hover:bg-[var(--color-wa-border)]/40 border border-[var(--color-wa-border)] rounded-lg transition-colors max-w-[280px]"
+                              >
+                                <div className="bg-red-500 text-white p-2 rounded-lg shrink-0">
+                                  <FileText size={20} />
+                                </div>
+                                <div className="flex-1 overflow-hidden min-w-0 text-left">
+                                  <p className="text-[12px] font-medium text-[var(--color-wa-text)] truncate">{fileName}</p>
+                                  <p className="text-[10px] text-[var(--color-wa-muted)] mt-0.5 uppercase font-mono">{fileSizeStr}</p>
+                                </div>
+                                <div className="text-[var(--color-wa-muted)] shrink-0 hover:text-[var(--color-wa-text)]">
+                                  <Download size={16} />
+                                </div>
+                              </a>
+                              {m.content && m.content !== '[Document]' && (
+                                <WhatsAppMessageText text={m.content} className="mt-1" />
+                              )}
+                            </div>
+                          );
+                        }
+                        default:
+                          return (
+                            <WhatsAppMessageText
+                              text={m.content || ''}
+                              isTemplate={mediaType === 'template'}
+                            />
+                          );
+                      }
+                    })()}
                     <div className={`flex items-center gap-1 mt-1.5 ${isOut ? 'justify-end' : 'justify-start'}`}>
                       <span className={`text-[10px] ${isOut ? 'text-[var(--color-wa-teal)]' : 'text-[var(--color-wa-muted)]'}`}>
                         {new Date(m.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
@@ -361,93 +727,212 @@ export default function InboxPage() {
 
           {/* ── Input Area ─────────────────────────────────────────── */}
           <div className="px-4 py-3 bg-[var(--color-wa-surface)] border-t border-[var(--color-wa-border)] flex-shrink-0 z-10 relative">
-
-            {/* Hidden file inputs — always in DOM for ref stability */}
+            {/* Hidden file inputs */}
             <input
               type="file"
               ref={imageInputRef}
+              onChange={e => handleFileSelect(e, 'image')}
+              accept="image/*"
               className="hidden"
-              accept="image/*,video/*"
-              onChange={e => handleFileSelect(e, 'image/video')}
             />
             <input
               type="file"
               ref={docInputRef}
-              className="hidden"
-              accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar"
               onChange={e => handleFileSelect(e, 'document')}
+              accept={WHATSAPP_DOCUMENT_ACCEPT}
+              className="hidden"
             />
 
-            {/* Emoji Picker — positioned above input bar */}
-            {showEmoji && (
-              <div className="absolute bottom-full left-4 mb-2 z-[100] rounded-xl overflow-hidden shadow-2xl animate-scaleIn">
-                <EmojiPicker
-                  onEmojiClick={handleEmojiClick}
-                  autoFocusSearch={false}
-                  theme={'light' as any}
-                  searchPlaceholder="Search emojis..."
-                  width={320}
-                  height={400}
-                  previewConfig={{ showPreview: false }}
-                  skinTonesDisabled
-                />
+            {/* Media Upload / Preview Mode */}
+            {selectedFile ? (
+              <div className="flex flex-col gap-3 animate-fadeIn">
+                <div className="flex items-center justify-between border-b border-[var(--color-wa-border)] pb-2">
+                  <span className="text-[11px] font-bold text-[var(--color-wa-muted)] uppercase tracking-wider">
+                    Send {mediaType}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={clearSelectedMedia}
+                    className="p-1 hover:bg-[var(--color-wa-bg)] rounded-full text-[var(--color-wa-muted)] hover:text-[var(--color-wa-text)] transition-colors cursor-pointer"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+                
+                <div className="flex items-center gap-3 bg-[var(--color-wa-bg)] p-3 rounded-lg border border-[var(--color-wa-border)]">
+                  {mediaPreviewUrl ? (
+                    mediaType === 'image' ? (
+                      <img src={mediaPreviewUrl} className="w-12 h-12 object-cover rounded border border-[var(--color-wa-border)] shadow-sm" alt="Preview" />
+                    ) : (
+                      <video src={mediaPreviewUrl} className="w-12 h-12 object-cover rounded border border-[var(--color-wa-border)] shadow-sm" />
+                    )
+                  ) : (
+                    <div className="w-12 h-12 bg-red-500 rounded flex items-center justify-center text-white shrink-0 shadow-sm">
+                      <FileText size={22} />
+                    </div>
+                  )}
+                  
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-[var(--color-wa-text)] truncate">{selectedFile.name}</p>
+                    <p className="text-[10px] text-[var(--color-wa-muted)] mt-0.5">
+                      {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
+                    </p>
+                  </div>
+                </div>
+
+                {uploadError && (
+                  <div className="text-xs text-red-500 font-medium px-1">
+                    {uploadError}
+                  </div>
+                )}
+
+                <form onSubmit={handleSendMedia} className="flex items-center gap-3">
+                  <input
+                    type="text"
+                    value={mediaCaption}
+                    onChange={e => setMediaCaption(e.target.value)}
+                    placeholder="Add a caption..."
+                    className="flex-1 text-sm bg-white border border-[var(--color-wa-border)] rounded-lg py-2 px-3 focus:outline-none focus:border-[var(--color-wa-green)]"
+                    disabled={uploadingMedia || !!uploadError}
+                  />
+                  <button
+                    type="submit"
+                    disabled={uploadingMedia || !!uploadError}
+                    className={`p-2 rounded-full text-white transition-all shrink-0 cursor-pointer ${
+                      uploadingMedia || !!uploadError
+                        ? 'bg-gray-300 cursor-not-allowed'
+                        : 'bg-[var(--color-wa-green)] hover:bg-[#1ebe5d] active:scale-95 shadow-md'
+                    }`}
+                  >
+                    {uploadingMedia ? (
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <Send size={16} />
+                    )}
+                  </button>
+                </form>
               </div>
+            ) : (
+              /* Regular Message Mode */
+              <>
+                {/* Emoji picker */}
+                {showEmoji && (
+                  <div className="absolute bottom-16 left-4 z-40 shadow-2xl border border-[var(--color-wa-border)] rounded-xl overflow-hidden animate-scaleIn bg-white">
+                    <EmojiPicker
+                      onEmojiClick={handleEmojiClick}
+                      width={320}
+                      height={360}
+                    />
+                  </div>
+                )}
+
+                {/* Template picker */}
+                {showTemplatePicker && (
+                  <TemplateSender
+                    onSend={async (name, lang, comps, text) => {
+                      await handleSendTemplate(name, lang, comps, text);
+                      setShowTemplatePicker(false);
+                    }}
+                    onClose={() => setShowTemplatePicker(false)}
+                  />
+                )}
+
+                <form onSubmit={handleSend} className="flex items-center gap-3">
+                  {/* Attachment dropdown */}
+                  <div className="relative shrink-0" ref={attachRef}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAttachMenu(!showAttachMenu);
+                        setShowEmoji(false);
+                        setShowTemplatePicker(false);
+                      }}
+                      className={`p-2 rounded-full transition cursor-pointer ${
+                        showAttachMenu
+                          ? 'bg-[var(--color-wa-green)]/15 text-[var(--color-wa-teal)]'
+                          : 'text-[var(--color-wa-muted)] hover:text-[var(--color-wa-text)] hover:bg-[var(--color-wa-bg)]'
+                      }`}
+                      title="Attach file"
+                    >
+                      <Paperclip size={20} />
+                    </button>
+                    
+                    {/* Click menu */}
+                    {showAttachMenu && (
+                      <div className="absolute bottom-12 left-0 flex flex-col bg-white border border-[var(--color-wa-border)] rounded-xl shadow-xl py-1 w-44 z-30 transition-all">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleImageClick();
+                            setShowAttachMenu(false);
+                          }}
+                          className="flex items-center gap-3 px-4 py-2.5 text-xs font-semibold text-[var(--color-wa-text)] hover:bg-[var(--color-wa-bg)] w-full text-left transition-colors cursor-pointer"
+                        >
+                          <ImageIcon size={16} className="text-[#007FFF]" />
+                          <span>Photos & Videos</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleDocClick();
+                            setShowAttachMenu(false);
+                          }}
+                          className="flex items-center gap-3 px-4 py-2.5 text-xs font-semibold text-[var(--color-wa-text)] hover:bg-[var(--color-wa-bg)] w-full text-left transition-colors cursor-pointer"
+                        >
+                          <FileText size={16} className="text-[#FF5733]" />
+                          <span>Document</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Emoji Toggle */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowEmoji(!showEmoji);
+                      setShowTemplatePicker(false);
+                      setShowAttachMenu(false);
+                    }}
+                    className={`p-2 rounded-full transition shrink-0 cursor-pointer ${
+                      showEmoji
+                        ? 'bg-[var(--color-wa-green)]/15 text-[var(--color-wa-teal)]'
+                        : 'text-[var(--color-wa-muted)] hover:text-[var(--color-wa-text)] hover:bg-[var(--color-wa-bg)]'
+                    }`}
+                    title="Emojis"
+                  >
+                    <Smile size={20} />
+                  </button>
+
+                  {/* Text Input */}
+                  <input
+                    type="text"
+                    value={inputText}
+                    onChange={e => setInputText(e.target.value)}
+                    onFocus={() => {
+                      setShowEmoji(false);
+                      setShowTemplatePicker(false);
+                      setShowAttachMenu(false);
+                    }}
+                    placeholder="Type a message"
+                    className="flex-1 bg-[var(--color-wa-bg)]/50 border border-[var(--color-wa-border)] rounded-lg py-2 px-4 focus:outline-none focus:border-[var(--color-wa-green)] focus:bg-white text-sm"
+                  />
+
+                  {/* Send Button */}
+                  <button
+                    type="submit"
+                    disabled={!inputText.trim()}
+                    className={`p-2.5 rounded-full text-white transition shrink-0 cursor-pointer ${
+                      inputText.trim()
+                        ? 'bg-[var(--color-wa-green)] hover:bg-[#1ebe5d] active:scale-95 shadow-md'
+                        : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                    }`}
+                  >
+                    <Send size={18} />
+                  </button>
+                </form>
+              </>
             )}
-
-            <form onSubmit={handleSend} className="flex items-center gap-1 md:gap-2">
-              {/* Emoji toggle */}
-              <button
-                type="button"
-                onClick={() => setShowEmoji(prev => !prev)}
-                className={`hidden sm:flex p-2 rounded-full transition-colors ${
-                  showEmoji
-                    ? 'bg-[var(--color-wa-green)]/10 text-[var(--color-wa-green)]'
-                    : 'text-[var(--color-wa-muted)] hover:text-[var(--color-wa-text)]'
-                }`}
-                title="Emojis"
-              >
-                <Smile size={18} />
-              </button>
-
-              {/* Image / Video */}
-              <button
-                type="button"
-                onClick={handleImageClick}
-                className="p-2 text-[var(--color-wa-muted)] hover:text-[var(--color-wa-text)]"
-                title="Images & Videos"
-              >
-                <ImageIcon size={18} />
-              </button>
-
-              {/* Documents */}
-              <button
-                type="button"
-                onClick={handleDocClick}
-                className="hidden sm:flex p-2 text-[var(--color-wa-muted)] hover:text-[var(--color-wa-text)]"
-                title="Documents"
-              >
-                <Paperclip size={18} />
-              </button>
-
-              {/* Text input */}
-              <input
-                value={inputText}
-                onChange={e => setInputText(e.target.value)}
-                onFocus={() => setShowEmoji(false)}
-                placeholder="Type a message…"
-                className="flex-1 cursor-text"
-                style={{ background: 'var(--color-wa-bg)', fontSize: 13 }}
-              />
-
-              {/* Send */}
-              <button
-                type="submit"
-                className="w-10 h-10 rounded-full bg-[#25D366] flex items-center justify-center flex-shrink-0 hover:bg-[#1ebe5d] transition shadow-md disabled:bg-[#25d36680]"
-                disabled={!inputText.trim()}
-              >
-                <Send size={16} color="#FFFFFF" />
-              </button>
-            </form>
           </div>
         </div>
       ) : (
@@ -461,6 +946,156 @@ export default function InboxPage() {
           </div>
         </div>
       )}
+
+      {/* ── WhatsApp-style Full Screen Media Viewer ───────────────────── */}
+      {viewerMessage && (() => {
+        const mediaObj = viewerMessage.media && Array.isArray(viewerMessage.media) && viewerMessage.media.length > 0 ? viewerMessage.media[0] : null;
+        const mediaId = mediaObj?.id || viewerMessage.media_url;
+        if (!mediaId) return null;
+
+        const fileSrc = mediaId.startsWith('http') ? mediaId : `/api/media/${mediaId}`;
+        const isOut = viewerMessage.direction === 'outbound';
+
+        // Sender details
+        const senderName = isOut ? 'You' : (selectedContact?.name || selectedContact?.phone_number || 'Sender');
+
+        // Filter image messages to support left/right arrow navigation
+        const imageMessages = messages.filter(m => m.message_type === 'image');
+        const currentIndex = imageMessages.findIndex(img => img.id === viewerMessage.id);
+
+        const handlePrev = () => {
+          if (currentIndex > 0) {
+            setViewerMessage(imageMessages[currentIndex - 1]);
+            setZoomScale(1);
+          }
+        };
+
+        const handleNext = () => {
+          if (currentIndex < imageMessages.length - 1) {
+            setViewerMessage(imageMessages[currentIndex + 1]);
+            setZoomScale(1);
+          }
+        };
+
+        // File download trigger
+        const handleDownload = async () => {
+          try {
+            const response = await fetch(fileSrc);
+            const blob = await response.blob();
+            const blobUrl = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.download = mediaObj?.fileName || `whatsapp_image_${viewerMessage.id}.jpg`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(blobUrl);
+          } catch (err) {
+            console.error('Failed to download file:', err);
+            // fallback
+            window.open(fileSrc, '_blank');
+          }
+        };
+
+        return (
+          <div className="fixed inset-0 z-[1000] bg-[#0b141a] select-none flex flex-col justify-between text-white overflow-hidden animate-fadeIn">
+            {/* Header */}
+            <div className="bg-[#0b141a]/95 px-6 py-3 flex items-center justify-between z-10 border-b border-[#ffffff0a]">
+              <div className="flex items-center gap-3">
+                <Avatar name={senderName} size={10} />
+                <div>
+                  <p className="text-[14px] font-semibold text-white">{senderName}</p>
+                  <p className="text-[11px] text-gray-400">
+                    {new Date(viewerMessage.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' })} at{' '}
+                    {new Date(viewerMessage.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+              </div>
+
+              {/* Tools row */}
+              <div className="flex items-center gap-4">
+                <button
+                  type="button"
+                  onClick={() => setZoomScale(z => Math.min(z + 0.25, 3))}
+                  className="p-2 text-gray-300 hover:text-white rounded-full hover:bg-white/5 transition cursor-pointer"
+                  title="Zoom In"
+                >
+                  <ZoomIn size={20} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setZoomScale(z => Math.max(z - 0.25, 0.5))}
+                  className="p-2 text-gray-300 hover:text-white rounded-full hover:bg-white/5 transition cursor-pointer"
+                  title="Zoom Out"
+                >
+                  <ZoomOut size={20} />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDownload}
+                  className="p-2 text-gray-300 hover:text-white rounded-full hover:bg-white/5 transition cursor-pointer"
+                  title="Download"
+                >
+                  <Download size={20} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewerMessage(null)}
+                  className="p-2 text-gray-300 hover:text-white rounded-full hover:bg-white/5 transition cursor-pointer"
+                  title="Close"
+                >
+                  <X size={22} />
+                </button>
+              </div>
+            </div>
+
+            {/* Media Area */}
+            <div className="relative flex-1 flex items-center justify-center p-4 bg-[#0b141a]/95">
+
+              {/* Left arrow */}
+              {currentIndex > 0 && (
+                <button
+                  type="button"
+                  onClick={handlePrev}
+                  className="absolute left-6 z-20 w-12 h-12 rounded-full bg-black/40 hover:bg-black/60 flex items-center justify-center cursor-pointer transition text-white border border-white/5"
+                >
+                  <ChevronLeft size={28} />
+                </button>
+              )}
+
+              {/* Centered Image */}
+              <div className="relative overflow-hidden max-h-[80vh] max-w-[85vw] flex items-center justify-center transition-transform duration-200">
+                <img
+                  src={fileSrc}
+                  alt="Viewer media"
+                  className="max-h-[75vh] max-w-[80vw] object-contain shadow-2xl rounded-md transition-transform duration-100 ease-out select-none"
+                  style={{ transform: `scale(${zoomScale})` }}
+                />
+              </div>
+
+              {/* Right arrow */}
+              {currentIndex < imageMessages.length - 1 && (
+                <button
+                  type="button"
+                  onClick={handleNext}
+                  className="absolute right-6 z-20 w-12 h-12 rounded-full bg-black/40 hover:bg-black/60 flex items-center justify-center cursor-pointer transition text-white border border-white/5"
+                >
+                  <ChevronRight size={28} />
+                </button>
+              )}
+            </div>
+
+            {/* Footer / Caption */}
+            {viewerMessage.content && viewerMessage.content !== '[Image]' && (
+              <div className="bg-[#0b141a]/95 border-t border-[#ffffff0a] py-5 px-8 text-center z-10 flex flex-col items-center">
+                <p className="text-[14.2px] text-gray-200 font-normal leading-relaxed max-w-[70%] text-center">
+                  {viewerMessage.content}
+                </p>
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
