@@ -59,7 +59,23 @@ export interface DashStore {
 export const useDashStore = create<DashStore>((set, get) => ({
   conversations: [],
   activeConversationId: null,
-  setActiveConversation: (id) => set({ activeConversationId: id, messages: [], hasMoreMessages: true }),
+  setActiveConversation: (id) => {
+    set({ activeConversationId: id, messages: [], hasMoreMessages: true });
+    if (id) {
+      set(state => ({
+        conversations: state.conversations.map(c =>
+          c.id === id ? { ...c, unread_count: 0 } : c
+        )
+      }));
+      supabase
+        .from('whatsapp_portal_conversations')
+        .update({ unread_count: 0 })
+        .eq('id', id)
+        .then(({ error }: any) => {
+          if (error) console.error('Failed to reset unread_count:', error);
+        });
+    }
+  },
   loadingConversations: false,
   loadingMessages: false,
   loadingOlderMessages: false,
@@ -90,16 +106,31 @@ export const useDashStore = create<DashStore>((set, get) => ({
 
       if (error) throw error;
       
-      const convs = (data || []).map((row: any) => ({
-        id: row.id,
-        contact: {
-          name: row.whatsapp_portal_contacts?.name || row.whatsapp_portal_contacts?.profile_name || row.whatsapp_portal_contacts?.phone_number || 'Unknown',
-          phone_number: row.whatsapp_portal_contacts?.phone_number || ''
-        },
-        last_message: row.last_message || '',
-        last_message_at: row.last_message_at,
-        unread_count: row.unread_count || 0
-      }));
+      const activeId = get().activeConversationId;
+      const convs = (data || []).map((row: any) => {
+        const isCurrentActive = row.id === activeId;
+        
+        if (isCurrentActive && row.unread_count > 0) {
+          supabase
+            .from('whatsapp_portal_conversations')
+            .update({ unread_count: 0 })
+            .eq('id', row.id)
+            .then(({ error }: any) => {
+              if (error) console.error('Failed to update unread_count on active conversation poll:', error);
+            });
+        }
+
+        return {
+          id: row.id,
+          contact: {
+            name: row.whatsapp_portal_contacts?.name || row.whatsapp_portal_contacts?.profile_name || row.whatsapp_portal_contacts?.phone_number || 'Unknown',
+            phone_number: row.whatsapp_portal_contacts?.phone_number || ''
+          },
+          last_message: row.last_message || '',
+          last_message_at: row.last_message_at,
+          unread_count: isCurrentActive ? 0 : (row.unread_count || 0)
+        };
+      });
 
       set({ conversations: convs });
     } catch (err: any) {
