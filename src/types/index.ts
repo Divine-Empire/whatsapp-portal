@@ -1,4 +1,4 @@
-export type MessageStatus = 'sent' | 'delivered' | 'read';
+export type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
 export type MessageType = 'text' | 'image' | 'video' | 'audio' | 'document';
 
 export type Theme = 'light' | 'dark';

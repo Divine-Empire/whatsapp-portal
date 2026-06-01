@@ -3,7 +3,8 @@ import React from 'react';
 import { useApp } from '../context/AppContext';
 import { StatCard } from '../components/ui/Cards';
 import {
-  Send, CheckCircle, BookOpen, XCircle, Clock, MessageSquare
+  Send, CheckCircle, BookOpen, XCircle, Clock, MessageSquare,
+  Activity, MousePointerClick, ListTodo, UserCheck, UserX
 } from 'lucide-react';
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -42,11 +43,9 @@ export default function OverviewPage() {
 
   const hourlyData = data.hourly.filter((_, i) => i % 2 === 0); // every 2 hours for readability
 
-  const recentReplies = data.messages.filter(m => m.hasReply).slice(0, 8);
-
   return (
     <div className="space-y-4 md:space-y-6 animate-fadeIn py-3">
-      {/* Stat cards */}
+      {/* Core message delivery cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-2 md:gap-3">
         <StatCard icon={Send}         label="Total Sent"  value={stats.sent}      color="#3b82f6" pct={100} />
         <StatCard icon={CheckCircle}  label="Delivered"   value={stats.delivered} color="#25D366" pct={deliveryRate} />
@@ -54,6 +53,15 @@ export default function OverviewPage() {
         <StatCard icon={XCircle}      label="Failed"      value={stats.failed}    color="#ef4444" pct={stats.sent ? Math.round(stats.failed/stats.sent*100) : 0} />
         <StatCard icon={Clock}        label="In Queue"    value={stats.queue}     color="#eab308" />
         <StatCard icon={MessageSquare}label="Replies"     value={stats.replies}   color="#8b5cf6" pct={replyRate} />
+      </div>
+
+      {/* Interactive options & sentiment cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2 md:gap-3">
+        <StatCard icon={Activity}          label="Interactions"       value={stats.totalInteractions} color="#3b82f6" />
+        <StatCard icon={MousePointerClick} label="Button Clicks"     value={stats.buttonClicks}      color="#8b5cf6" />
+        <StatCard icon={ListTodo}          label="List Selections"    value={stats.listSelections}    color="#6366f1" />
+        <StatCard icon={UserCheck}         label="Interested Leads"   value={stats.interestedLeads}   color="#25D366" />
+        <StatCard icon={UserX}             label="Not Interested"     value={stats.notInterestedLeads} color="#ef4444" />
       </div>
 
       {/* Charts row */}
@@ -103,7 +111,7 @@ export default function OverviewPage() {
         </div>
       </div>
 
-      {/* KPI row + Recent replies */}
+      {/* KPI row + Recent Interactions Table */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* KPI cards */}
         <div className="space-y-3">
@@ -124,27 +132,74 @@ export default function OverviewPage() {
           ))}
         </div>
 
-        {/* Recent replies */}
-        <div className="card p-5 lg:col-span-2">
-          <h2 className="text-[14px] font-semibold text-[var(--color-wa-text)] mb-4">Recent Replies</h2>
-          <div className="space-y-2">
-            {recentReplies.map(m => (
-              <div key={m.id} className="flex items-center gap-3 p-3 rounded-2xl hover:bg-[var(--color-wa-bg)] transition-all duration-200 border border-transparent hover:border-[var(--color-wa-border)]">
-                <div className="w-10 h-10 rounded-full bg-[var(--color-wa-green)] flex items-center justify-center text-white text-[12px] font-bold flex-shrink-0 shadow-sm">
-                  {m.contactName?.[0] || 'U'}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex justify-between items-center mb-0.5">
-                    <p className="text-[13px] text-[var(--color-wa-text)] font-bold truncate">{m.contactName}</p>
-                    <span className="text-[10px] text-[var(--color-wa-muted)] font-medium">
-                      {new Date(m.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
-                  <p className="text-[12px] text-[var(--color-wa-muted)] truncate italic">"{m.replyText}"</p>
-                </div>
-              </div>
-            ))}
-          </div>
+        {/* Recent Interactions Table */}
+        <div className="card p-5 lg:col-span-2 overflow-x-auto">
+          <h2 className="text-[14px] font-semibold text-[var(--color-wa-text)] mb-4">Recent Interactions</h2>
+          <table className="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr className="border-b border-[var(--color-wa-border)] text-[var(--color-wa-muted)] font-medium">
+                <th className="pb-3 pr-2">Sender Name</th>
+                <th className="pb-3 pr-2">Timestamp</th>
+                <th className="pb-3 pr-2">Content/Reply Title</th>
+                <th className="pb-3 pr-2">Interactive Type</th>
+                <th className="pb-3">Lead Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.recentInteractions && data.recentInteractions.length > 0 ? (
+                data.recentInteractions.map((item) => {
+                  let badgeColor = "bg-[var(--color-wa-muted)]/10 text-[var(--color-wa-muted)]";
+                  if (item.interest_status === "Interested") {
+                    badgeColor = "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400";
+                  } else if (item.interest_status === "Not Interested") {
+                    badgeColor = "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400";
+                  }
+
+                  let typeBadge = "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400";
+                  if (item.interactive_type === "button_reply" || item.interactive_type === "button") {
+                    typeBadge = "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400";
+                  } else if (item.interactive_type === "list_reply") {
+                    typeBadge = "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400";
+                  } else {
+                    typeBadge = "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400";
+                  }
+
+                  return (
+                    <tr key={item.id} className="border-b border-[var(--color-wa-border)]/50 last:border-0 hover:bg-[var(--color-wa-bg)]/30 transition-colors">
+                      <td className="py-3 pr-2 font-semibold text-[var(--color-wa-text)]">{item.sender_name}</td>
+                      <td className="py-3 pr-2 text-[var(--color-wa-muted)] whitespace-nowrap">
+                        {new Date(item.created_at).toLocaleString('en-IN', {
+                          day: '2-digit',
+                          month: 'short',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </td>
+                      <td className="py-3 pr-2 text-[var(--color-wa-text)] max-w-[200px] truncate" title={item.content || item.interactive_title}>
+                        {item.content || item.interactive_title || '-'}
+                      </td>
+                      <td className="py-3 pr-2">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${typeBadge}`}>
+                          {item.interactive_type || 'Text Message'}
+                        </span>
+                      </td>
+                      <td className="py-3">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${badgeColor}`}>
+                          {item.interest_status || 'Other'}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={5} className="py-8 text-center text-[var(--color-wa-muted)] italic">
+                    No recent interactions tracked yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

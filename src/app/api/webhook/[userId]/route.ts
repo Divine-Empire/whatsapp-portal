@@ -44,21 +44,48 @@ export async function POST(
   { params }: { params: Promise<{ userId: string }> },
 ) {
   const { userId } = await params;
+  let payloadId: string | null = null;
+  const supabase = createAdminClient();
 
-  // Always return 200 immediately to Meta to prevent retries
   try {
     const body = await request.json();
-    const supabase = createAdminClient();
+
+    // 1. Raw Webhook Logger
+    try {
+      const { data: insertedPayload, error: insertPayloadErr } = await supabase
+        .from("webhook_payloads")
+        .insert({
+          user_id: userId,
+          payload: body,
+          processed: false,
+        })
+        .select("id")
+        .single();
+
+      if (insertPayloadErr) {
+        console.warn("⚠️ Warning: Failed to insert raw webhook payload:", insertPayloadErr);
+      } else if (insertedPayload) {
+        payloadId = insertedPayload.id;
+      }
+    } catch (dbErr) {
+      console.warn("⚠️ Warning: Failed to insert raw webhook payload (catch):", dbErr);
+    }
 
     console.log("👉 Full Webhook Body:", JSON.stringify(body, null, 2));
 
     const entry = body?.entry?.[0];
     if (!entry) {
+      if (payloadId) {
+        await supabase.from("webhook_payloads").update({ processed: true }).eq("id", payloadId).maybeSingle();
+      }
       return NextResponse.json({ status: "ok" });
     }
 
     const changes = entry.changes?.[0]?.value;
     if (!changes) {
+      if (payloadId) {
+        await supabase.from("webhook_payloads").update({ processed: true }).eq("id", payloadId).maybeSingle();
+      }
       return NextResponse.json({ status: "ok" });
     }
 
@@ -74,6 +101,7 @@ export async function POST(
         const profileName = changes.contacts?.[0]?.profile?.name || phoneNumber;
         const waMessageId = msg.id;
         const messageType = msg.type || "text";
+        const contextMessageId = msg.context?.id || null;
 
         // ── Handle Reactions — update existing message, don't create new one ──
         if (messageType === "reaction") {
@@ -132,10 +160,38 @@ export async function POST(
         let mimeType: string | null = null;
         let fileSize: number | null = null;
 
+        let interactiveType: string | null = null;
+        let interactiveId: string | null = null;
+        let interactiveTitle: string | null = null;
+
         switch (messageType) {
           case "text":
             messageContent = msg.text?.body || "";
             break;
+
+          case "interactive": {
+            const type = msg.interactive?.type;
+            if (type === "button_reply") {
+              interactiveType = "button_reply";
+              interactiveId = msg.interactive?.button_reply?.id || null;
+              interactiveTitle = msg.interactive?.button_reply?.title || null;
+              messageContent = interactiveTitle || "";
+            } else if (type === "list_reply") {
+              interactiveType = "list_reply";
+              interactiveId = msg.interactive?.list_reply?.id || null;
+              interactiveTitle = msg.interactive?.list_reply?.title || null;
+              messageContent = interactiveTitle || "";
+            }
+            break;
+          }
+
+          case "button": {
+            interactiveType = "button";
+            interactiveId = msg.button?.payload || null;
+            interactiveTitle = msg.button?.text || null;
+            messageContent = interactiveTitle || "";
+            break;
+          }
 
           case "image":
             messageContent = msg.image?.caption || "";
@@ -219,6 +275,21 @@ export async function POST(
           messageContent = `[${messageType.charAt(0).toUpperCase() + messageType.slice(1)}]`;
         }
 
+        // Sentiment / Interest Classifier
+        let interestStatus = "Other";
+        const normalized = messageContent.toLowerCase().trim();
+        const interestedWords = ["yes", "haan", "interested", "ok", "confirm", "done", "sure", "agree"];
+        const notInterestedWords = ["no", "nahi", "cancel", "reject", "stop", "ignore"];
+
+        const isInterested = interestedWords.some(w => normalized.includes(w));
+        const isNotInterested = notInterestedWords.some(w => normalized.includes(w));
+
+        if (isInterested) {
+          interestStatus = "Interested";
+        } else if (isNotInterested) {
+          interestStatus = "Not Interested";
+        }
+
         // Upsert contact
         const { data: contact, error: contactError } = await supabase
           .from("whatsapp_portal_contacts")
@@ -274,6 +345,11 @@ export async function POST(
           content: messageContent,
           message_type: messageType,
           status: "sent",
+          interactive_type: interactiveType,
+          interactive_id: interactiveId,
+          interactive_title: interactiveTitle,
+          context_message_id: contextMessageId,
+          interest_status: interestStatus,
         };
 
         // Add media fields using actual column names from messages table
@@ -463,6 +539,18 @@ export async function POST(
     }
   } catch (err) {
     console.error("Webhook processing error:", err);
+  }
+
+  if (payloadId) {
+    try {
+      await supabase
+        .from("webhook_payloads")
+        .update({ processed: true })
+        .eq("id", payloadId)
+        .maybeSingle();
+    } catch (dbErr) {
+      console.warn("⚠️ Warning: Failed to set payload processed: true", dbErr);
+    }
   }
 
   return NextResponse.json({ status: "ok" });

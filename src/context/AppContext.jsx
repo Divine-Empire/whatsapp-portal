@@ -5,10 +5,24 @@ import { createClient } from '@/lib/supabase/client';
 
 const AppContext = createContext(null);
 
-const DEFAULT_STATS = { sent: 0, delivered: 0, read: 0, failed: 0, queue: 0, replies: 0, total: 0 };
+const DEFAULT_STATS = { 
+  sent: 0, 
+  delivered: 0, 
+  read: 0, 
+  failed: 0, 
+  queue: 0, 
+  replies: 0, 
+  total: 0,
+  totalInteractions: 0,
+  buttonClicks: 0,
+  listSelections: 0,
+  interestedLeads: 0,
+  notInterestedLeads: 0
+};
 const DEFAULT_DATA = { 
   hourly: [], 
   messages: [], 
+  recentInteractions: [],
   templates: [], 
   contacts: [], 
   credits: { remaining: 0, used: 0, limit: 10000 } 
@@ -129,6 +143,7 @@ export function AppProvider({ children }) {
             credits: payload.credits, 
             hourly: payload.hourly || [], 
             messages: payload.messages || [],
+            recentInteractions: payload.recentInteractions || [],
             templates: templates
           }));
         }

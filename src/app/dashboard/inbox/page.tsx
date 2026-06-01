@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { useDashStore } from '@/lib/store';
 import {
   CSV_MIME_TYPES,
@@ -125,7 +125,84 @@ export default function InboxPage() {
     sendReaction,
     searchQuery,
     setSearchQuery,
+    hasMoreMessages,
+    loadingOlderMessages,
+    fetchOlderMessages,
   } = useDashStore();
+
+  const scrollContainerRef  = useRef<HTMLDivElement>(null);
+  const prevMessagesRef     = useRef<any[]>([]);
+  const prevScrollHeightRef = useRef<number>(0);
+  const isPrependingRef     = useRef<boolean>(false);
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const container = e.currentTarget;
+    if (container.scrollTop < 100 && !loadingOlderMessages && hasMoreMessages) {
+      prevScrollHeightRef.current = container.scrollHeight;
+      isPrependingRef.current = true;
+      if (activeConversationId) {
+        fetchOlderMessages(activeConversationId);
+      }
+    }
+  };
+
+  useLayoutEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const prevMessages = prevMessagesRef.current;
+    const currentMessages = messages;
+    prevMessagesRef.current = currentMessages;
+
+    if (currentMessages.length === 0) return;
+
+    // 1. Initial Load / Active Conversation Switch
+    const isFirstLoad = prevMessages.length === 0 || 
+      (prevMessages[0] && prevMessages[0].conversation_id !== currentMessages[0].conversation_id);
+
+    if (isFirstLoad) {
+      container.scrollTop = container.scrollHeight;
+      isPrependingRef.current = false;
+      return;
+    }
+
+    // 2. Prepend (Stabilize viewport scroll position)
+    if (isPrependingRef.current && prevMessages.length > 0 && currentMessages.length > prevMessages.length) {
+      const firstPrevId = prevMessages[0].id;
+      const firstCurrId = currentMessages[0].id;
+      
+      if (firstPrevId !== firstCurrId) {
+        const delta = container.scrollHeight - prevScrollHeightRef.current;
+        container.scrollTop = delta;
+      }
+      isPrependingRef.current = false;
+      return;
+    }
+
+    // 3. New Message (Smooth scroll to bottom if close to bottom, or outbound)
+    if (prevMessages.length > 0 && currentMessages.length > prevMessages.length) {
+      const lastPrevId = prevMessages[prevMessages.length - 1].id;
+      const lastCurrId = currentMessages[currentMessages.length - 1].id;
+      
+      if (lastPrevId !== lastCurrId) {
+        const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 200;
+        const isLastMessageOutbound = currentMessages[currentMessages.length - 1].direction === 'outbound';
+        
+        if (isNearBottom || isLastMessageOutbound) {
+          container.scrollTo({
+            top: container.scrollHeight,
+            behavior: 'smooth'
+          });
+        }
+      }
+    }
+  }, [messages]);
+
+  useEffect(() => {
+    if (activeConversationId) {
+      useDashStore.getState().fetchMessages(activeConversationId, true);
+    }
+  }, [activeConversationId]);
 
   const [inputText, setInputText]       = useState('');
   const [activeFilter, setActiveFilter] = useState('all');
@@ -163,7 +240,7 @@ export default function InboxPage() {
       useDashStore.getState().fetchConversations();
       const activeId = useDashStore.getState().activeConversationId;
       if (activeId) {
-        useDashStore.getState().fetchMessages(activeId);
+        useDashStore.getState().fetchMessages(activeId, false);
       }
     }, 5000);
 
@@ -187,9 +264,7 @@ export default function InboxPage() {
   const selectedConv    = conversations.find(c => c.id === activeConversationId);
   const selectedContact = selectedConv?.contact;
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages.length, activeConversationId]);
+  // Legacy scroll-to-bottom replaced by useLayoutEffect viewport controller
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -526,7 +601,16 @@ export default function InboxPage() {
           </div>
 
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-3 z-10">
+          <div 
+            ref={scrollContainerRef}
+            onScroll={handleScroll}
+            className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-3 z-10"
+          >
+            {loadingOlderMessages && (
+              <div className="flex justify-center py-2 shrink-0">
+                <div className="w-5 h-5 border-2 border-[var(--color-wa-green)] border-t-transparent rounded-full animate-spin" />
+              </div>
+            )}
             {messages.length === 0 && (
               <div className="flex-1 flex items-center justify-center">
                 <p className="text-[var(--color-wa-muted)] text-[13px] font-medium">No messages yet. Say hello! 👋</p>

@@ -34,7 +34,11 @@ export async function POST(req: Request) {
       message_type,
       content,
       context_message_id,
-      raw_payload_template
+      raw_payload_template,
+      interactive_type,
+      interactive_id,
+      interactive_title,
+      interest_status
     } = body;
 
     // Validate that message_id exists since it is the conflict key
@@ -78,6 +82,27 @@ export async function POST(req: Request) {
         { success: false, error: 'No contact number (from_number/to_number) provided' },
         { status: 400 }
       );
+    }
+
+    // Sentiment / Interest detection fallback
+    let resolvedInterestStatus = interest_status || null;
+    if (!resolvedInterestStatus && direction === 'inbound') {
+      const normalized = (content || '').toLowerCase().trim();
+      const interestedWords = ["yes", "haan", "interested", "ok", "confirm", "done", "sure", "agree"];
+      const notInterestedWords = ["no", "nahi", "cancel", "reject", "stop", "ignore"];
+      
+      const isInterested = interestedWords.some(w => normalized.includes(w));
+      const isNotInterested = notInterestedWords.some(w => normalized.includes(w));
+
+      if (isInterested) {
+        resolvedInterestStatus = "Interested";
+      } else if (isNotInterested) {
+        resolvedInterestStatus = "Not Interested";
+      } else {
+        resolvedInterestStatus = "Other";
+      }
+    } else if (!resolvedInterestStatus) {
+      resolvedInterestStatus = "Other";
     }
 
     // 1. Resolve Contact (with user_id to match webhook/portal schema)
@@ -155,6 +180,11 @@ export async function POST(req: Request) {
       message_type: message_type || 'text',
       status: status || 'sent',
       created_at: timestamp,
+      interactive_type: interactive_type || null,
+      interactive_id: interactive_id || null,
+      interactive_title: interactive_title || null,
+      context_message_id: context_message_id || null,
+      interest_status: resolvedInterestStatus,
     };
 
     if (status === 'delivered') msgData.delivered_at = timestamp;

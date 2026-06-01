@@ -348,3 +348,29 @@ LEFT JOIN public.whatsapp_portal_templates wt
 
 LEFT JOIN public.whatsapp_portal_configs wc
   ON wc.user_id = m.user_id;
+
+  -- 1. Create Raw Webhook payloads table
+CREATE TABLE IF NOT EXISTS public.webhook_payloads (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  payload JSONB NOT NULL,
+  processed BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Enable RLS and add policy
+ALTER TABLE public.webhook_payloads ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users can manage their own webhook payloads" ON public.webhook_payloads
+  FOR ALL USING (auth.uid() = user_id);
+
+-- 2. Add interactive and analytics tracking columns to messages
+ALTER TABLE public.whatsapp_portal_messages ADD COLUMN IF NOT EXISTS interactive_type TEXT;
+ALTER TABLE public.whatsapp_portal_messages ADD COLUMN IF NOT EXISTS interactive_id TEXT;
+ALTER TABLE public.whatsapp_portal_messages ADD COLUMN IF NOT EXISTS interactive_title TEXT;
+ALTER TABLE public.whatsapp_portal_messages ADD COLUMN IF NOT EXISTS context_message_id TEXT;
+ALTER TABLE public.whatsapp_portal_messages ADD COLUMN IF NOT EXISTS interest_status TEXT;
+
+-- 3. Add optimal indexes for tracking analytics
+CREATE INDEX IF NOT EXISTS idx_messages_interactive_type ON public.whatsapp_portal_messages(interactive_type);
+CREATE INDEX IF NOT EXISTS idx_messages_context_message_id ON public.whatsapp_portal_messages(context_message_id);
+CREATE INDEX IF NOT EXISTS idx_messages_interest_status ON public.whatsapp_portal_messages(interest_status);
