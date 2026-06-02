@@ -19,7 +19,10 @@ import {
   Search, Send, Image as ImageIcon, FileText, Smile, Phone,
   MoreVertical, CheckCheck, Check, Archive, VolumeX, ShieldAlert,
   UserX, UserCheck, ChevronLeft, ChevronRight, SmilePlus, Download, Play, Paperclip, X, ZoomIn, ZoomOut,
+  Reply,
 } from 'lucide-react';
+import { useMessageNavigation } from '@/hooks/useMessageNavigation';
+import { ReplyPreview } from '@/components/ReplyPreview';
 
 // Dynamic import — EmojiPicker only runs in browser (no SSR)
 const EmojiPicker = dynamic(() => import('emoji-picker-react'), { ssr: false });
@@ -128,7 +131,11 @@ export default function InboxPage() {
     hasMoreMessages,
     loadingOlderMessages,
     fetchOlderMessages,
+    replyingToMessage,
+    setReplyingToMessage,
   } = useDashStore();
+
+  const { activeHighlightId, navigateToMessage, loading: loadingNav, error: navError } = useMessageNavigation();
 
   const scrollContainerRef  = useRef<HTMLDivElement>(null);
   const prevMessagesRef     = useRef<any[]>([]);
@@ -284,8 +291,25 @@ export default function InboxPage() {
     e.preventDefault();
     if (!inputText.trim() || !activeConversationId || !selectedContact?.phone_number) return;
     try {
-      await sendMessage(selectedContact.phone_number, inputText.trim(), activeConversationId);
+      const replyToId = replyingToMessage?.wa_message_id || replyingToMessage?.id || undefined;
+      const replyPreview = replyingToMessage
+        ? {
+            sender_name: replyingToMessage.direction === 'outbound'
+              ? 'You'
+              : (selectedContact?.name || selectedContact?.phone_number || 'Sender'),
+            content: replyingToMessage.content || `[${replyingToMessage.message_type}]`,
+          }
+        : undefined;
+
+      await sendMessage(
+        selectedContact.phone_number,
+        inputText.trim(),
+        activeConversationId,
+        replyToId,
+        replyPreview
+      );
       setInputText('');
+      setReplyingToMessage(null);
       setShowEmoji(false);
     } catch (err) {
       console.error(err);
@@ -619,10 +643,39 @@ export default function InboxPage() {
             {messages.map(m => {
               const isOut = m.direction === 'outbound';
               return (
-              <div key={m.id} className={`flex ${isOut ? 'justify-end' : 'justify-start'}`}>
+              <div 
+                key={m.id} 
+                id={`msg-${m.id}`}
+                className={`flex ${isOut ? 'justify-end' : 'justify-start'}`}
+              >
                 <div className="relative group max-w-[85%] md:max-w-[70%]">
                   {/* Bubble */}
-                  <div className={`${isOut ? 'chat-bubble-out' : 'chat-bubble-in'} relative`}>
+                  <div 
+                    id={m.wa_message_id ? `msg-${m.wa_message_id}` : undefined}
+                    className={`
+                      ${isOut ? 'chat-bubble-out' : 'chat-bubble-in'} 
+                      relative transition-all duration-300
+                      ${(activeHighlightId === m.id || (m.wa_message_id && activeHighlightId === m.wa_message_id)) ? 'animate-messageHighlight' : ''}
+                    `}
+                  >
+                    {/* Reply Preview inside Bubble */}
+                    {m.context_message_id && (() => {
+                      const parentMsg = messages.find(pm => pm.id === m.context_message_id || pm.wa_message_id === m.context_message_id);
+                      const senderName = m.metadata?.reply_to_message?.sender_name || 
+                                        (parentMsg 
+                                          ? (parentMsg.direction === 'outbound' ? 'You' : (selectedContact?.name || selectedContact?.phone_number || 'Sender'))
+                                          : 'Message');
+                      const replyContent = m.metadata?.reply_to_message?.content || 
+                                          (parentMsg ? parentMsg.content : 'Click to view');
+                      return (
+                        <ReplyPreview
+                          senderName={senderName}
+                          content={replyContent}
+                          isOutbound={isOut}
+                          onClick={() => navigateToMessage(m.context_message_id!)}
+                        />
+                      );
+                    })()}
                     {/* Media Render */}
                     {(() => {
                       const mediaObj = m.media && Array.isArray(m.media) && m.media.length > 0 ? m.media[0] : null;
@@ -754,8 +807,16 @@ export default function InboxPage() {
                     })()}
                   </div>
 
-                  {/* ── Floating reaction trigger (appears on hover) ── */}
-                  <div className={`absolute -top-1 ${isOut ? '-left-9' : '-right-9'} opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-20`}>
+                  {/* ── Floating actions (appear on hover) ── */}
+                  <div className={`absolute -top-1 ${isOut ? '-left-16' : '-right-16'} opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-20 flex gap-1`}>
+                    <button
+                      type="button"
+                      className="p-1.5 rounded-full shadow-sm border bg-white/95 text-[var(--color-wa-muted)] hover:text-[var(--color-wa-text)] border-[var(--color-wa-border)] cursor-pointer"
+                      onClick={() => setReplyingToMessage(m)}
+                      title="Reply"
+                    >
+                      <Reply size={14} />
+                    </button>
                     <button
                       className={`p-1.5 rounded-full shadow-sm border transition-all ${
                         reactingToId === m.id
@@ -811,6 +872,18 @@ export default function InboxPage() {
 
           {/* ── Input Area ─────────────────────────────────────────── */}
           <div className="px-4 py-3 bg-[var(--color-wa-surface)] border-t border-[var(--color-wa-border)] flex-shrink-0 z-10 relative">
+            {/* Input Reply Preview */}
+            {replyingToMessage && (
+              <div className="mb-2 bg-[#f0f2f5] p-1 rounded-lg border border-[var(--color-wa-border)] animate-fadeIn">
+                <ReplyPreview
+                  senderName={replyingToMessage.direction === 'outbound'
+                    ? 'You'
+                    : (selectedContact?.name || selectedContact?.phone_number || 'Sender')}
+                  content={replyingToMessage.content || `[${replyingToMessage.message_type}]`}
+                  onClear={() => setReplyingToMessage(null)}
+                />
+              </div>
+            )}
             {/* Hidden file inputs */}
             <input
               type="file"

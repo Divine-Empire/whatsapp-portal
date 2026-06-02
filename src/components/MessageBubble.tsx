@@ -3,6 +3,7 @@ import { CheckCheck, FileText, Download, Star as StarIcon } from 'lucide-react';
 import type { Message } from '../types';
 import MessageContextMenu from './MessageContextMenu';
 import { users as allUsers } from '../data/chats';
+import ReplyPreview from './ReplyPreview';
 
 interface MessageBubbleProps {
   message: Message;
@@ -10,6 +11,9 @@ interface MessageBubbleProps {
   isGroup?: boolean;
   highlightQuery?: string;
   isFirst?: boolean;
+  onReply?: (msg: Message) => void;
+  onNavigateToMessage?: (targetId: string) => void;
+  activeHighlightId?: string | null;
 }
 
 const formatTime = (isoString: string): string => {
@@ -17,7 +21,16 @@ const formatTime = (isoString: string): string => {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 };
 
-const MessageBubble = React.memo(({ message, isMe, isGroup, highlightQuery, isFirst = true }: MessageBubbleProps) => {
+const MessageBubble = React.memo(({
+  message,
+  isMe,
+  isGroup,
+  highlightQuery,
+  isFirst = true,
+  onReply,
+  onNavigateToMessage,
+  activeHighlightId
+}: MessageBubbleProps) => {
   const { content, timestamp, status, isDeleted: initialDeleted, type = 'text', mediaUrl, fileName, fileSize, senderId } = message;
 
   const [isStarred, setIsStarred] = useState(false);
@@ -81,7 +94,10 @@ const MessageBubble = React.memo(({ message, isMe, isGroup, highlightQuery, isFi
   };
 
   return (
-    <div className={`flex w-full mb-1 px-[6%] ${isMe ? 'justify-end' : 'justify-start'} ${isFirst ? 'mt-2' : ''}`}>
+    <div 
+      id={`mock-msg-${message.id}`}
+      className={`flex w-full mb-1 px-[6%] ${isMe ? 'justify-end' : 'justify-start'} ${isFirst ? 'mt-2' : ''}`}
+    >
       <div className={`relative max-w-[85%] sm:max-w-[65%] group flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
         
         {/* SVG Tail */}
@@ -99,16 +115,27 @@ const MessageBubble = React.memo(({ message, isMe, isGroup, highlightQuery, isFi
         {/* The Bubble */}
         <div 
           onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY }); }}
-          className={`relative px-2 pt-1.5 pb-1 rounded-[7.5px] shadow-sm select-text flex flex-col min-w-[60px] ${
+          className={`relative px-2 pt-1.5 pb-1 rounded-[7.5px] shadow-sm select-text flex flex-col min-w-[60px] transition-all duration-300 ${
             isMe 
               ? 'bg-[var(--bg-bubble-sent)]' 
               : 'bg-[var(--bg-bubble-received)]'
-          } ${isFirst ? (isMe ? 'rounded-tr-none' : 'rounded-tl-none') : ''}`}
+          } ${isFirst ? (isMe ? 'rounded-tr-none' : 'rounded-tl-none') : ''} ${
+            activeHighlightId === message.id ? 'animate-messageHighlight' : ''
+          }`}
         >
           {isGroup && !isMe && sender && !isDeleted && isFirst && (
             <div className="text-[13px] font-semibold mb-1 leading-tight flex items-center justify-between" style={{ color: sender.avatarColor || '#53bdeb' }}>
               <span>{sender.name}</span>
             </div>
+          )}
+
+          {message.reply_to_message_id && message.reply_to_message && (
+            <ReplyPreview
+              senderName={message.reply_to_message.sender_name}
+              content={message.reply_to_message.content}
+              isOutbound={isMe}
+              onClick={() => onNavigateToMessage?.(message.reply_to_message_id!)}
+            />
           )}
 
           <div className="relative">
@@ -132,7 +159,7 @@ const MessageBubble = React.memo(({ message, isMe, isGroup, highlightQuery, isFi
             x={contextMenu.x}
             y={contextMenu.y}
             isMe={isMe}
-            onReply={() => {}}
+            onReply={() => { onReply?.(message); setContextMenu(null); }}
             onCopy={() => navigator.clipboard.writeText(content)}
             onStar={() => setIsStarred(!isStarred)}
             onDelete={() => setIsDeleted(true)}

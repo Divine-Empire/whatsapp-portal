@@ -33,6 +33,11 @@ export interface Message {
   fileSize?: string;
   duration?: string;
   isDeleted?: boolean;
+  reply_to_message_id?: string;
+  reply_to_message?: {
+    sender_name: string;
+    content: string;
+  };
 }
 
 export interface Chat {

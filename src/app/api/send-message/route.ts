@@ -7,7 +7,7 @@ export async function POST(request: NextRequest) {
     const supabase = createAdminClient();
     const user = { id: '84c43f3b-dd3b-4762-8ed2-731cdeea4e8a' };
 
-    const { to, message, conversationId } = await request.json();
+    const { to, message, conversationId, replyToMessageId, replyToMessagePreview } = await request.json();
     if (!to || !message) {
       return NextResponse.json(
         { error: 'Missing "to" or "message" field' },
@@ -51,6 +51,7 @@ export async function POST(request: NextRequest) {
       message,
       accessToken,
       phoneNumberId,
+      contextMessageId: replyToMessageId,
     });
 
     // Save outbound message to Supabase
@@ -64,6 +65,8 @@ export async function POST(request: NextRequest) {
         content: message,
         message_type: 'text',
         status: 'sent',
+        context_message_id: replyToMessageId || null,
+        metadata: replyToMessagePreview ? { reply_to_message: replyToMessagePreview } : null,
       })
       .select('id')
       .single();

@@ -13,6 +13,7 @@ interface SendMessageParams {
   message: string;
   accessToken: string;
   phoneNumberId: string;
+  contextMessageId?: string;
 }
 
 interface SendMessageResponse {
@@ -27,6 +28,7 @@ export async function sendWhatsAppMessage({
   message,
   accessToken,
   phoneNumberId,
+  contextMessageId,
 }: SendMessageParams): Promise<SendMessageResponse> {
   const url = `https://graph.facebook.com/v19.0/${phoneNumberId}/messages`;
 
@@ -37,6 +39,7 @@ export async function sendWhatsAppMessage({
       to,
       type: 'text',
       text: { body: message },
+      ...(contextMessageId ? { context: { message_id: contextMessageId } } : {}),
     },
     {
       headers: {

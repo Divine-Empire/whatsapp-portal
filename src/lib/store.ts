@@ -33,6 +33,14 @@ export interface DashMessage {
   myReaction?: string;
   delivered_at?: string;
   seen_at?: string;
+  context_message_id?: string;
+  metadata?: {
+    reply_to_message?: {
+      sender_name: string;
+      content: string;
+    };
+    [key: string]: any;
+  };
 }
 
 export interface DashStore {
@@ -49,18 +57,31 @@ export interface DashStore {
   searchQuery: string;
   setSearchQuery: (query: string) => void;
 
+  replyingToMessage: DashMessage | null;
+  setReplyingToMessage: (msg: DashMessage | null) => void;
+  fetchSingleMessage: (messageId: string) => Promise<DashMessage | null>;
+  insertFetchedMessage: (msg: DashMessage) => void;
+
   fetchConversations: () => Promise<void>;
   fetchMessages: (conversationId: string, isInitial?: boolean) => Promise<void>;
   fetchOlderMessages: (conversationId: string) => Promise<void>;
-  sendMessage: (to: string, content: string, conversationId: string) => Promise<void>;
+  sendMessage: (
+    to: string,
+    content: string,
+    conversationId: string,
+    replyToMessageId?: string,
+    replyToMessagePreview?: { sender_name: string; content: string }
+  ) => Promise<void>;
   sendReaction: (to: string, messageId: string, emoji: string, internalMessageId: string) => Promise<void>;
 }
 
 export const useDashStore = create<DashStore>((set, get) => ({
   conversations: [],
   activeConversationId: null,
+  replyingToMessage: null,
+  setReplyingToMessage: (msg) => set({ replyingToMessage: msg }),
   setActiveConversation: (id) => {
-    set({ activeConversationId: id, messages: [], hasMoreMessages: true });
+    set({ activeConversationId: id, messages: [], hasMoreMessages: true, replyingToMessage: null });
     if (id) {
       set(state => ({
         conversations: state.conversations.map(c =>
@@ -172,7 +193,9 @@ export const useDashStore = create<DashStore>((set, get) => ({
           media: log.media,
           media_url: log.media_url,
           file_name: log.file_name,
-          file_size: log.file_size
+          file_size: log.file_size,
+          context_message_id: log.context_message_id,
+          metadata: log.metadata
         }));
 
         const reversed = mapped.reverse();
@@ -207,7 +230,9 @@ export const useDashStore = create<DashStore>((set, get) => ({
           media: log.media,
           media_url: log.media_url,
           file_name: log.file_name,
-          file_size: log.file_size
+          file_size: log.file_size,
+          context_message_id: log.context_message_id,
+          metadata: log.metadata
         }));
 
         const newestInDb = mapped.reverse(); // Now ascending
@@ -240,7 +265,9 @@ export const useDashStore = create<DashStore>((set, get) => ({
               reactions: msg.reactions,
               delivered_at: msg.delivered_at,
               seen_at: msg.seen_at,
-              media_url: msg.media_url || existing.media_url
+              media_url: msg.media_url || existing.media_url,
+              context_message_id: msg.context_message_id || existing.context_message_id,
+              metadata: msg.metadata || existing.metadata
             });
           } else {
             // Append only if it is newer than the newest in state (avoids duplicate/overlapping prepended messages)
@@ -301,7 +328,9 @@ export const useDashStore = create<DashStore>((set, get) => ({
         media: log.media,
         media_url: log.media_url,
         file_name: log.file_name,
-        file_size: log.file_size
+        file_size: log.file_size,
+        context_message_id: log.context_message_id,
+        metadata: log.metadata
       }));
 
       const reversed = mapped.reverse();
@@ -316,7 +345,53 @@ export const useDashStore = create<DashStore>((set, get) => ({
     }
   },
 
-  sendMessage: async (to, content, conversationId) => {
+  fetchSingleMessage: async (messageId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('whatsapp_portal_messages')
+        .select('*')
+        .or(`id.eq.${messageId},wa_message_id.eq.${messageId}`)
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!data) return null;
+
+      return {
+        id: data.id,
+        conversation_id: data.conversation_id,
+        direction: data.direction,
+        message_type: data.message_type || 'text',
+        content: data.content || '',
+        created_at: data.created_at,
+        status: data.status || 'sent',
+        wa_message_id: data.wa_message_id,
+        reactions: data.reactions,
+        delivered_at: data.delivered_at,
+        seen_at: data.seen_at,
+        media: data.media,
+        media_url: data.media_url,
+        file_name: data.file_name,
+        file_size: data.file_size,
+        context_message_id: data.context_message_id,
+        metadata: data.metadata,
+      };
+    } catch (err) {
+      console.error('Failed to fetch single message:', err);
+      return null;
+    }
+  },
+
+  insertFetchedMessage: (msg: DashMessage) => {
+    const currentMessages = get().messages;
+    if (currentMessages.some(m => m.id === msg.id || (msg.wa_message_id && m.wa_message_id === msg.wa_message_id))) {
+      return;
+    }
+    const updated = [...currentMessages, msg];
+    updated.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    set({ messages: updated });
+  },
+
+  sendMessage: async (to, content, conversationId, replyToMessageId, replyToMessagePreview) => {
     const tempId = 'temp-' + Date.now();
     const optimisticMessage: DashMessage = {
       id: tempId,
@@ -326,6 +401,8 @@ export const useDashStore = create<DashStore>((set, get) => ({
       content,
       created_at: new Date().toISOString(),
       status: 'sending',
+      context_message_id: replyToMessageId,
+      metadata: replyToMessagePreview ? { reply_to_message: replyToMessagePreview } : undefined,
     };
 
     // Optimistically add message
@@ -337,7 +414,13 @@ export const useDashStore = create<DashStore>((set, get) => ({
       const response = await fetch('/api/send-message', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to, message: content, conversationId }),
+        body: JSON.stringify({
+          to,
+          message: content,
+          conversationId,
+          replyToMessageId,
+          replyToMessagePreview,
+        }),
       });
       const data = await response.json();
       if (!response.ok) {

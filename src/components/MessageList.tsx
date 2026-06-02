@@ -10,6 +10,9 @@ interface MessageListProps {
   isTyping?: boolean;
   highlightQuery?: string;
   isGroup?: boolean;
+  onReply?: (msg: Message) => void;
+  onNavigateToMessage?: (targetId: string) => void;
+  activeHighlightId?: string | null;
 }
 
 const formatDate = (isoString: string): string => {
@@ -29,6 +32,9 @@ const MessageList: React.FC<MessageListProps> = ({
   isTyping = false,
   highlightQuery = '',
   isGroup = false,
+  onReply,
+  onNavigateToMessage,
+  activeHighlightId,
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -100,6 +106,9 @@ const MessageList: React.FC<MessageListProps> = ({
                   isGroup={isGroup}
                   highlightQuery={highlightQuery}
                   isFirst={isFirstInSeries}
+                  onReply={onReply}
+                  onNavigateToMessage={onNavigateToMessage}
+                  activeHighlightId={activeHighlightId}
                 />
               );
             })}

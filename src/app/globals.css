@@ -79,6 +79,14 @@ body {
   from { opacity: 0; transform: scale(0.9) translateY(10px); }
   to { opacity: 1; transform: scale(1) translateY(0); }
 }
+@keyframes messageHighlight {
+  0%, 100% {
+  }
+  20%, 80% {
+    background-color: rgba(0, 168, 132, 0.25) !important;
+    box-shadow: 0 0 12px rgba(0, 168, 132, 0.4) !important;
+  }
+}
 
 .animate-fadeIn { animation: fadeIn 0.35s ease forwards; }
 .animate-slideInLeft { animation: slideInLeft 0.3s ease forwards; }
@@ -88,6 +96,7 @@ body {
 .animate-toast-out { animation: toastOut 0.3s ease forwards; }
 .animate-spin-slow { animation: spin 1s linear infinite; }
 .animate-scaleIn { animation: scaleIn 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+.animate-messageHighlight { animation: messageHighlight 2.5s ease-in-out; }
 
 .glass {
   background: rgba(255, 255, 255, 0.95);

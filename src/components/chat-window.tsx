@@ -5,6 +5,7 @@ import MessageList from './MessageList';
 import MessageInput from './MessageInput';
 import ContactInfoDrawer from './ContactInfoDrawer';
 import { messages as initialMessages } from '../data/messages';
+import ReplyPreview from './ReplyPreview';
 
 interface ChatWindowProps {
   activeChat: Chat | null;
@@ -18,12 +19,25 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ activeChat, onBack, theme, onSt
   const [isTyping, setIsTyping] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [infoDrawerOpen, setInfoDrawerOpen] = useState(false);
+  const [replyingToMessage, setReplyingToMessage] = useState<Message | null>(null);
+  const [activeHighlightId, setActiveHighlightId] = useState<string | null>(null);
+
+  const handleNavigateToMessage = useCallback((targetId: string) => {
+    const el = document.getElementById(`mock-msg-${targetId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setActiveHighlightId(targetId);
+      setTimeout(() => setActiveHighlightId(null), 2500);
+    }
+  }, []);
 
   // Reset search when switching chats
   useEffect(() => {
     setSearchQuery('');
     setIsTyping(false);
     setInfoDrawerOpen(false);
+    setReplyingToMessage(null);
+    setActiveHighlightId(null);
   }, [activeChat?.id]);
 
   const handleSend = useCallback(
@@ -37,18 +51,26 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ activeChat, onBack, theme, onSt
         senderId: 'me',
         status: 'sent',
         type: 'text',
+        reply_to_message_id: replyingToMessage?.id || undefined,
+        reply_to_message: replyingToMessage
+          ? {
+              sender_name: replyingToMessage.senderId === 'me' ? 'You' : (activeChat.participant.name || 'Sender'),
+              content: replyingToMessage.content,
+            }
+          : undefined,
       };
       setMessagesMap((prev) => ({
         ...prev,
         [activeChat.id]: [...(prev[activeChat.id] ?? []), newMsg],
       }));
+      setReplyingToMessage(null);
 
       // Simulate typing response
       setIsTyping(true);
       const timeout = setTimeout(() => setIsTyping(false), 2000);
       return () => clearTimeout(timeout);
     },
-    [activeChat]
+    [activeChat, replyingToMessage]
   );
 
   const toggleInfoDrawer = () => setInfoDrawerOpen(!infoDrawerOpen);
@@ -83,7 +105,21 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ activeChat, onBack, theme, onSt
           isTyping={isTyping}
           highlightQuery={searchQuery}
           isGroup={activeChat.isGroup}
+          onReply={setReplyingToMessage}
+          onNavigateToMessage={handleNavigateToMessage}
+          activeHighlightId={activeHighlightId}
         />
+        {replyingToMessage && (
+          <div className="px-4 py-2 bg-[#f0f2f5] border-t border-[#e9edef] animate-fadeIn">
+            <ReplyPreview
+              senderName={replyingToMessage.senderId === 'me'
+                ? 'You'
+                : (activeChat?.participant.name || 'Sender')}
+              content={replyingToMessage.content}
+              onClear={() => setReplyingToMessage(null)}
+            />
+          </div>
+        )}
         <MessageInput onSend={handleSend} theme={theme} />
       </div>
 
