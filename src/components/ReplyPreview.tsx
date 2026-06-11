@@ -36,7 +36,7 @@ export const ReplyPreview: React.FC<ReplyPreviewProps> = ({
         ${onClick ? 'cursor-pointer hover:bg-black/5 active:bg-black/10' : ''}
         ${
           isOutbound
-            ? 'bg-[#005c4b]/15 text-[#e9edef]'
+            ? 'bg-[#005c4b]/10 text-[#111b21]'
             : 'bg-[#f0f2f5]/90 text-[#111b21]'
         }
       `}
@@ -56,7 +56,7 @@ export const ReplyPreview: React.FC<ReplyPreviewProps> = ({
         >
           {senderName}
         </span>
-        <span className={`truncate ${isOutbound ? 'text-gray-300' : 'text-gray-600'}`}>
+        <span className="truncate text-gray-600">
           {content}
         </span>
       </div>

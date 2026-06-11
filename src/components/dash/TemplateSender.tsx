@@ -1,14 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { FileText, X, Send, ChevronDown, Loader2, AlertCircle } from 'lucide-react';
-
-interface WhatsAppTemplate {
-  name: string;
-  category: string;
-  body: string;
-  language: string;
-}
+import { FileText, X, Send, ChevronDown, Loader2, AlertCircle, Image as ImageIcon, Link } from 'lucide-react';
+import { buildTemplateComponents, WhatsAppTemplateMeta } from '@/lib/templateUtils';
 
 interface TemplateSenderProps {
   onSend: (templateName: string, languageCode: string, components: any[], resolvedText: string) => Promise<void>;
@@ -16,11 +10,12 @@ interface TemplateSenderProps {
 }
 
 export default function TemplateSender({ onSend, onClose }: TemplateSenderProps) {
-  const [templates, setTemplates] = useState<WhatsAppTemplate[]>([]);
+  const [templates, setTemplates] = useState<WhatsAppTemplateMeta[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [selectedTemplate, setSelectedTemplate] = useState<WhatsAppTemplate | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<WhatsAppTemplateMeta | null>(null);
   const [paramValues, setParamValues] = useState<string[]>([]);
+  const [imageUrl, setImageUrl] = useState('');
   const [sending, setSending] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -61,11 +56,13 @@ export default function TemplateSender({ onSend, onClose }: TemplateSenderProps)
     return matches.map((m) => parseInt(m.replace(/[{}]/g, '')));
   };
 
-  const selectTemplate = (template: WhatsAppTemplate) => {
+  const selectTemplate = (template: WhatsAppTemplateMeta) => {
     setSelectedTemplate(template);
     setShowDropdown(false);
     const placeholders = getPlaceholders(template.body);
     setParamValues(new Array(placeholders.length).fill(''));
+    setImageUrl('');
+    setError('');
   };
 
   // Build preview text with filled values
@@ -81,6 +78,7 @@ export default function TemplateSender({ onSend, onClose }: TemplateSenderProps)
   const handleSend = async () => {
     if (!selectedTemplate) return;
 
+    // Validate body params
     const placeholders = getPlaceholders(selectedTemplate.body);
     const hasEmpty = paramValues.some((v, i) => i < placeholders.length && !v.trim());
     if (hasEmpty) {
@@ -88,20 +86,22 @@ export default function TemplateSender({ onSend, onClose }: TemplateSenderProps)
       return;
     }
 
+    // Validate image URL for image-header templates
+    if (selectedTemplate.hasImageHeader && !imageUrl.trim()) {
+      setError('This template requires a header image URL');
+      return;
+    }
+
     setSending(true);
     setError('');
 
     try {
-      // Build WhatsApp API components format
-      const components = paramValues.length > 0 ? [
-        {
-          type: 'body',
-          parameters: paramValues.map((val) => ({
-            type: 'text',
-            text: val,
-          })),
-        },
-      ] : [];
+      // Build full WhatsApp API components array using the helper
+      const components = buildTemplateComponents({
+        imageUrl: selectedTemplate.hasImageHeader ? imageUrl : undefined,
+        bodyParams: paramValues,
+        buttons: selectedTemplate.buttons,
+      });
 
       const resolvedText = getPreviewText();
       await onSend(selectedTemplate.name, selectedTemplate.language, components, resolvedText);
@@ -125,7 +125,7 @@ export default function TemplateSender({ onSend, onClose }: TemplateSenderProps)
   }
 
   return (
-    <div className="absolute bottom-full left-0 right-0 mb-2 mx-4 bg-[#1f2c34] border border-[#2a3942] rounded-xl shadow-2xl z-30 flex flex-col" style={{ maxHeight: 'min(85vh, 560px)', minHeight: '360px' }}>
+    <div className="absolute bottom-full left-0 right-0 mb-2 mx-4 bg-[#1f2c34] border border-[#2a3942] rounded-xl shadow-2xl z-30 flex flex-col" style={{ maxHeight: 'min(85vh, 600px)', minHeight: '360px' }}>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-[#2a3942]/50 shrink-0">
         <div className="flex items-center gap-2 text-[#e9edef]">
@@ -171,8 +171,14 @@ export default function TemplateSender({ onSend, onClose }: TemplateSenderProps)
                     onClick={() => selectTemplate(t)}
                     className="w-full text-left px-3 py-2.5 hover:bg-[#3b4a54] transition-colors border-b border-[#3b4a54]/30 last:border-0"
                   >
-                    <div className="text-[13px] text-[#e9edef] font-medium">
-                      {t.name}
+                    <div className="flex items-center gap-2">
+                      <span className="text-[13px] text-[#e9edef] font-medium">{t.name}</span>
+                      {t.hasImageHeader && (
+                        <span className="text-[10px] bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded font-mono">IMG</span>
+                      )}
+                      {t.buttons.length > 0 && (
+                        <span className="text-[10px] bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded font-mono">{t.buttons.length} BTN</span>
+                      )}
                     </div>
                     <div className="text-[11px] text-[#8696a0] mt-0.5">
                       {t.category} • {t.language}
@@ -183,6 +189,30 @@ export default function TemplateSender({ onSend, onClose }: TemplateSenderProps)
             </div>
           )}
         </div>
+
+        {/* Header Image URL (only for IMAGE header templates) */}
+        {selectedTemplate?.hasImageHeader && (
+          <div>
+            <label className="text-[11px] uppercase tracking-wider text-[#8696a0] font-medium mb-1.5 block flex items-center gap-1.5">
+              <ImageIcon size={12} />
+              Header Image URL
+              <span className="text-red-400 ml-0.5">*</span>
+            </label>
+            <div className="relative">
+              <Link size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8696a0]" />
+              <input
+                type="url"
+                value={imageUrl}
+                onChange={(e) => setImageUrl(e.target.value)}
+                placeholder="https://… or Google Drive share link"
+                className="w-full bg-[#2a3942] rounded-lg pl-8 pr-3 py-2 text-[13px] text-[#e9edef] placeholder:text-[#8696a0]/50 border border-[#2a3942]/60 focus:border-[#00a884]/50 focus:outline-none transition-colors"
+              />
+            </div>
+            <p className="text-[10px] text-[#8696a0] mt-1">
+              Google Drive links are automatically converted to direct download URLs.
+            </p>
+          </div>
+        )}
 
         {/* Parameter Inputs */}
         {selectedTemplate && paramValues.length > 0 && (
@@ -217,8 +247,31 @@ export default function TemplateSender({ onSend, onClose }: TemplateSenderProps)
             <label className="text-[11px] uppercase tracking-wider text-[#8696a0] font-medium mb-1.5 block">
               Preview
             </label>
-            <div className="bg-[#005c4b] rounded-lg px-3 py-2.5 text-[13px] text-[#e1e9eb] whitespace-pre-wrap leading-relaxed max-h-[180px] overflow-y-auto">
-              {getPreviewText()}
+            <div className="bg-[#005c4b] rounded-lg overflow-hidden">
+              {/* Image preview */}
+              {selectedTemplate.hasImageHeader && imageUrl.trim() && (
+                <div className="bg-black/20 px-3 pt-2.5 pb-1">
+                  <div className="flex items-center gap-1.5 text-[10px] text-[#8696a0]">
+                    <ImageIcon size={10} />
+                    <span>Header image will be sent</span>
+                  </div>
+                </div>
+              )}
+              {/* Body text */}
+              <div className="px-3 py-2.5 text-[13px] text-[#e1e9eb] whitespace-pre-wrap leading-relaxed max-h-[160px] overflow-y-auto">
+                {getPreviewText()}
+              </div>
+              {/* Buttons preview */}
+              {selectedTemplate.buttons.length > 0 && (
+                <div className="border-t border-white/10 px-3 py-2 space-y-1">
+                  {selectedTemplate.buttons.map((btn, i) => (
+                    <div key={i} className="text-[12px] text-[#00a884] font-medium text-center py-0.5">
+                      {btn.type === 'QUICK_REPLY' ? '↩ ' : btn.type === 'URL' ? '🔗 ' : '📞 '}
+                      {btn.text}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}

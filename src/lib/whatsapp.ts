@@ -130,11 +130,22 @@ interface SendTemplateParams {
   phoneNumberId: string;
 }
 
+// Re-export shared types and pure helpers from the client-safe module so
+// server-side code (API routes) can import them from whatsapp.ts as before.
+export type {
+  WhatsAppTemplateButton,
+  WhatsAppTemplateMeta,
+} from '@/lib/templateUtils';
+export {
+  convertGoogleDriveLinkToDirect,
+  buildTemplateComponents,
+} from '@/lib/templateUtils';
+
+import type { WhatsAppTemplateButton, WhatsAppTemplateMeta } from '@/lib/templateUtils';
+
 /**
- * Send a template message via WhatsApp Cloud API
- */
-/**
- * Fetch all approved message templates from the WhatsApp Business Management API
+ * Fetch all approved message templates from the WhatsApp Business Management API.
+ * Returns rich metadata including header type and button definitions.
  */
 export async function fetchWhatsAppTemplates({
   wabaId,
@@ -142,26 +153,48 @@ export async function fetchWhatsAppTemplates({
 }: {
   wabaId: string;
   accessToken: string;
-}): Promise<{ name: string; category: string; header: string; body: string; footer: string; language: string }[]> {
+}): Promise<WhatsAppTemplateMeta[]> {
   try {
     const url = `https://graph.facebook.com/v19.0/${wabaId}/message_templates?status=APPROVED&fields=name,category,components,language&limit=100`;
     const response = await axios.get(url, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
-    const templates: { name: string; category: string; header: string; body: string; footer: string; language: string }[] = [];
+    const templates: WhatsAppTemplateMeta[] = [];
     for (const t of response.data?.data || []) {
-      const headerComp = (t.components || []).find((c: any) => c.type === 'HEADER');
-      const bodyComp = (t.components || []).find((c: any) => c.type === 'BODY');
-      const footerComp = (t.components || []).find((c: any) => c.type === 'FOOTER');
+      const comps: any[] = t.components || [];
+      const headerComp  = comps.find((c: any) => c.type === 'HEADER');
+      const bodyComp    = comps.find((c: any) => c.type === 'BODY');
+      const footerComp  = comps.find((c: any) => c.type === 'FOOTER');
+      const buttonComps = comps.filter((c: any) => c.type === 'BUTTONS');
+
+      const headerType     = (headerComp?.format || '').toUpperCase() as string;
+      const hasImageHeader = headerType === 'IMAGE';
+
+      // Flatten buttons from BUTTONS component
+      const buttons: WhatsAppTemplateButton[] = [];
+      for (const bc of buttonComps) {
+        for (const btn of bc.buttons || []) {
+          buttons.push({
+            type: btn.type as WhatsAppTemplateButton['type'],
+            text: btn.text || '',
+            url: btn.url,
+            phone_number: btn.phone_number,
+            example: btn.example,
+          });
+        }
+      }
 
       templates.push({
         name: t.name,
         category: (t.category || '').toLowerCase(),
         header: headerComp?.text || '',
+        headerType,
+        hasImageHeader,
         body: bodyComp?.text || '',
         footer: footerComp?.text || '',
         language: t.language || '',
+        buttons,
       });
     }
     return templates;
@@ -170,6 +203,7 @@ export async function fetchWhatsAppTemplates({
     return [];
   }
 }
+
 
 /**
  * Resolve the body text and name of a template by matching its category or name.
@@ -267,11 +301,18 @@ export async function resolveTemplateFinalText({
   // Resolve all parts (Header + Body + Footer)
   const headerComp = components.find(c => c.type === 'header' || c.type === 'HEADER');
 
-  let finalHeader = match.header;
-  if (headerComp?.parameters) {
-    headerComp.parameters.forEach((param: any, idx: number) => {
-      finalHeader = finalHeader.replace(`{{${idx + 1}}}`, param.text || param.value || '');
-    });
+  let finalHeader = '';
+  if (match.hasImageHeader) {
+    // Image header — show the image URL or a placeholder in stored content
+    const imgParam = headerComp?.parameters?.find((p: any) => p.type === 'image');
+    finalHeader = imgParam?.image?.link ? `[Image: ${imgParam.image.link}]` : '[Image]';
+  } else if (match.header) {
+    finalHeader = match.header;
+    if (headerComp?.parameters) {
+      headerComp.parameters.forEach((param: any, idx: number) => {
+        finalHeader = finalHeader.replace(`{{${idx + 1}}}`, param.text || param.value || '');
+      });
+    }
   }
 
   let finalBody = resolveTemplateTextWithParams(match.body, components);

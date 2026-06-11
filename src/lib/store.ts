@@ -3,6 +3,100 @@ import { createClient } from '@/lib/supabase/client';
 
 export const supabase = createClient();
 
+/**
+ * Helper to fetch template details and reconstruct message content dynamically.
+ * Incorporates Header, Body, and Footer components with sequential variable substitution.
+ */
+async function resolveTemplatesForMessages(rawMessages: any[]): Promise<any[]> {
+  if (!rawMessages || rawMessages.length === 0) return [];
+
+  // Find all messages that need template resolution
+  const templateMessages = rawMessages.filter(
+    (m: any) => (m.message_type === 'template' || m.template_name) && m.template_name
+  );
+
+  if (templateMessages.length === 0) return rawMessages;
+
+  // Extract unique template names
+  const templateNames = Array.from(new Set(templateMessages.map((m: any) => m.template_name)));
+
+  try {
+    // Query template details (body, header, footer) from supabase
+    let { data: templates, error } = await supabase
+      .from('whatsapp_portal_templates')
+      .select('template_name, body, header, footer')
+      .in('template_name', templateNames);
+
+    // Fallback if the footer column doesn't exist in this database schema version
+    if (error && (error.code === '42703' || error.message?.toLowerCase().includes('footer'))) {
+      console.warn('⚠️ whatsapp_templates does not have a "footer" column. Retrying without it.');
+      const retryResult = await supabase
+        .from('whatsapp_portal_templates')
+        .select('template_name, body, header')
+        .in('template_name', templateNames);
+      templates = retryResult.data;
+    } else if (error) {
+      console.error('Error fetching template bodies:', error);
+      return rawMessages;
+    }
+
+    // Map template_name -> template object
+    const templateMap: Record<string, { body: string; header?: string; footer?: string }> = {};
+    if (templates) {
+      templates.forEach((t: any) => {
+        templateMap[t.template_name] = {
+          body: t.body || '',
+          header: t.header || '',
+          footer: t.footer || '',
+        };
+      });
+    }
+
+    // Reconstruct content for template messages
+    return rawMessages.map((msg: any) => {
+      if ((msg.message_type === 'template' || msg.template_name) && msg.template_name) {
+        const template = templateMap[msg.template_name];
+        const parameters = msg.metadata?.parameters || [];
+
+        if (template) {
+          let paramIndex = 0;
+
+          // Helper to substitute sequential placeholders from parameters array
+          const replacePlaceholders = (text: string | undefined) => {
+            if (!text) return '';
+            return text.replace(/\{\{(\d+)\}\}/g, () => {
+              const val = parameters[paramIndex++];
+              return val !== undefined && val !== null ? String(val) : '';
+            });
+          };
+
+          const resolvedHeader = replacePlaceholders(template.header);
+          const resolvedBody = replacePlaceholders(template.body);
+          const resolvedFooter = replacePlaceholders(template.footer);
+
+          // Format template text with WhatsApp markdown constraints
+          let fullContent = '';
+          if (resolvedHeader) {
+            fullContent += `*${resolvedHeader.trim()}*\n\n`;
+          }
+          fullContent += resolvedBody;
+          if (resolvedFooter) {
+            fullContent += `\n\n_${resolvedFooter.trim()}_`;
+          }
+
+          msg.content = fullContent;
+        } else if (!msg.content) {
+          msg.content = `[Template: ${msg.template_name}]`;
+        }
+      }
+      return msg;
+    });
+  } catch (err) {
+    console.error('Failed to resolve templates:', err);
+    return rawMessages;
+  }
+}
+
 export interface Contact {
   name: string;
   phone_number: string;
@@ -155,7 +249,7 @@ export const useDashStore = create<DashStore>((set, get) => ({
 
       set({ conversations: convs });
     } catch (err: any) {
-      console.error('Failed to fetch conversations:', err);
+      console.error('Failed to fetch conversations:', err?.message || err);
       set({ error: err.message });
     } finally {
       set({ loadingConversations: false });
@@ -178,7 +272,10 @@ export const useDashStore = create<DashStore>((set, get) => ({
 
         if (error) throw error;
 
-        const mapped = (data || []).map((log: any) => ({
+      // Resolve template content dynamically
+      const resolvedData = await resolveTemplatesForMessages(data || []);
+      
+      const mapped: DashMessage[] = resolvedData.reverse().map((log: any) => ({
           id: log.id,
           conversation_id: log.conversation_id,
           direction: log.direction,
@@ -281,7 +378,7 @@ export const useDashStore = create<DashStore>((set, get) => ({
         set({ messages: [...updatedMessages, ...toAppend] });
       }
     } catch (err: any) {
-      console.error('Failed to fetch messages:', err);
+      console.error('Failed to fetch messages:', err?.message || err);
     } finally {
       if (isInitial) {
         set({ loadingMessages: false });
@@ -313,7 +410,10 @@ export const useDashStore = create<DashStore>((set, get) => ({
         return;
       }
 
-      const mapped = data.map((log: any) => ({
+      // Resolve template content dynamically
+      const resolvedData = await resolveTemplatesForMessages(data);
+
+      const olderMapped: DashMessage[] = resolvedData.reverse().map((log: any) => ({
         id: log.id,
         conversation_id: log.conversation_id,
         direction: log.direction,
@@ -333,13 +433,13 @@ export const useDashStore = create<DashStore>((set, get) => ({
         metadata: log.metadata
       }));
 
-      const reversed = mapped.reverse();
+      const reversed = olderMapped.reverse();
       set({
         messages: [...reversed, ...currentMessages],
-        hasMoreMessages: mapped.length === 30
+        hasMoreMessages: olderMapped.length === 30
       });
     } catch (err: any) {
-      console.error('Failed to fetch older messages:', err);
+      console.error('Failed to fetch older messages:', err?.message || err);
     } finally {
       set({ loadingOlderMessages: false });
     }
