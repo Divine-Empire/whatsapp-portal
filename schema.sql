@@ -280,7 +280,7 @@ LEFT JOIN public.whatsapp_portal_contacts ct
 ORDER BY m.created_at DESC;
 
 
-CREATE OR REPLACE VIEW public.responses AS
+CREATE VIEW public.responses AS
 SELECT
   m.created_at AS "timestamp",
 
@@ -333,7 +333,19 @@ SELECT
   CONCAT(
     'TemplateName:',
     COALESCE(wt.template_name, 'Unknown')
-  ) AS raw_payload
+  ) AS raw_payload,
+
+  GREATEST(
+    m.created_at,
+    COALESCE(
+      (
+        SELECT MAX(wme.event_time)
+        FROM public.whatsapp_portal_message_events wme
+        WHERE wme.message_id = m.id
+      ),
+      m.created_at
+    )
+  ) AS sync_timestamp
 
 FROM public.whatsapp_portal_messages m
 
@@ -348,6 +360,12 @@ LEFT JOIN public.whatsapp_portal_templates wt
 
 LEFT JOIN public.whatsapp_portal_configs wc
   ON wc.user_id = m.user_id;
+
+CREATE INDEX IF NOT EXISTS idx_whatsapp_portal_message_events_message_time
+ON public.whatsapp_portal_message_events (
+  message_id,
+  event_time DESC
+);
 
   -- 1. Create Raw Webhook payloads table
 CREATE TABLE IF NOT EXISTS public.webhook_payloads (
@@ -369,6 +387,10 @@ ALTER TABLE public.whatsapp_portal_messages ADD COLUMN IF NOT EXISTS interactive
 ALTER TABLE public.whatsapp_portal_messages ADD COLUMN IF NOT EXISTS interactive_title TEXT;
 ALTER TABLE public.whatsapp_portal_messages ADD COLUMN IF NOT EXISTS context_message_id TEXT;
 ALTER TABLE public.whatsapp_portal_messages ADD COLUMN IF NOT EXISTS interest_status TEXT;
+
+-- add footer column to whatsapp_portal_templates
+ALTER TABLE public.whatsapp_portal_templates ADD COLUMN IF NOT EXISTS footer text;
+
 
 -- 3. Add optimal indexes for tracking analytics
 CREATE INDEX IF NOT EXISTS idx_messages_interactive_type ON public.whatsapp_portal_messages(interactive_type);
