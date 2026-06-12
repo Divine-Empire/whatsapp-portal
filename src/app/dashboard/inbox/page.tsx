@@ -115,6 +115,39 @@ function WhatsAppMessageText({
   );
 }
 
+function groupByDate(messages: any[]) {
+  const groups: { date: string; messages: any[] }[] = [];
+  let currentDate = '';
+
+  for (const msg of messages) {
+    const d = new Date(msg.created_at);
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+
+    let label: string;
+    if (d.toDateString() === today.toDateString()) {
+      label = 'TODAY';
+    } else if (d.toDateString() === yesterday.toDateString()) {
+      label = 'YESTERDAY';
+    } else {
+      const day = String(d.getDate()).padStart(2, '0');
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const year = d.getFullYear();
+      label = `${day}/${month}/${year}`;
+    }
+
+    if (label !== currentDate) {
+      currentDate = label;
+      groups.push({ date: label, messages: [msg] });
+    } else {
+      groups[groups.length - 1].messages.push(msg);
+    }
+  }
+
+  return groups;
+}
+
 /* ─── Page ───────────────────────────────────────────────────── */
 
 export default function InboxPage() {
@@ -640,233 +673,244 @@ export default function InboxPage() {
                 <p className="text-[var(--color-wa-muted)] text-[13px] font-medium">No messages yet. Say hello! 👋</p>
               </div>
             )}
-            {messages.map(m => {
-              const isOut = m.direction === 'outbound';
-              return (
-              <div 
-                key={m.id} 
-                id={`msg-${m.id}`}
-                className={`flex ${isOut ? 'justify-end' : 'justify-start'}`}
-              >
-                <div className="relative group max-w-[85%] md:max-w-[70%]">
-                  {/* Bubble */}
+            {groupByDate(messages).map(group => (
+              <div key={group.date} className="flex flex-col gap-3">
+                {/* Date Divider */}
+                <div className="flex justify-center my-2 sticky top-2 z-20">
+                  <span className="bg-[#182229] text-[#8696a0] text-[11px] px-3 py-1.5 rounded-[7px] shadow-sm font-medium uppercase tracking-wide">
+                    {group.date}
+                  </span>
+                </div>
+
+                {group.messages.map(m => {
+                  const isOut = m.direction === 'outbound';
+                  return (
                   <div 
-                    id={m.wa_message_id ? `msg-${m.wa_message_id}` : undefined}
-                    className={`
-                      ${isOut ? 'chat-bubble-out' : 'chat-bubble-in'} 
-                      relative transition-all duration-300
-                      ${(activeHighlightId === m.id || (m.wa_message_id && activeHighlightId === m.wa_message_id)) ? 'animate-messageHighlight' : ''}
-                    `}
+                    key={m.id} 
+                    id={`msg-${m.id}`}
+                    className={`flex ${isOut ? 'justify-end' : 'justify-start'}`}
                   >
-                    {/* Reply Preview inside Bubble */}
-                    {m.context_message_id && (() => {
-                      const parentMsg = messages.find(pm => pm.id === m.context_message_id || pm.wa_message_id === m.context_message_id);
-                      const senderName = m.metadata?.reply_to_message?.sender_name || 
-                                        (parentMsg 
-                                          ? (parentMsg.direction === 'outbound' ? 'You' : (selectedContact?.name || selectedContact?.phone_number || 'Sender'))
-                                          : 'Message');
-                      const replyContent = m.metadata?.reply_to_message?.content || 
-                                          (parentMsg ? parentMsg.content : 'Click to view');
-                      return (
-                        <ReplyPreview
-                          senderName={senderName}
-                          content={replyContent}
-                          isOutbound={isOut}
-                          onClick={() => navigateToMessage(m.context_message_id!)}
-                        />
-                      );
-                    })()}
-                    {/* Media Render */}
-                    {(() => {
-                      const mediaObj = m.media && Array.isArray(m.media) && m.media.length > 0 ? m.media[0] : null;
-                      const mediaId = mediaObj?.id || m.media_url;
-                      const mediaType = m.message_type;
-
-                      if (!mediaId) {
-                        return (
-                          <WhatsAppMessageText
-                            text={m.content || ''}
-                            isTemplate={mediaType === 'template'}
-                          />
-                        );
-                      }
-
-                      const fileSrc = mediaId.startsWith('http') ? mediaId : `/api/media/${mediaId}`;
-
-                      switch (mediaType) {
-                        case 'image':
+                    <div className="relative group max-w-[85%] md:max-w-[70%]">
+                      {/* Bubble */}
+                      <div 
+                        id={m.wa_message_id ? `msg-${m.wa_message_id}` : undefined}
+                        className={`
+                          ${isOut ? 'chat-bubble-out' : 'chat-bubble-in'} 
+                          relative transition-all duration-300
+                          ${(activeHighlightId === m.id || (m.wa_message_id && activeHighlightId === m.wa_message_id)) ? 'animate-messageHighlight' : ''}
+                        `}
+                      >
+                        {/* Reply Preview inside Bubble */}
+                        {m.context_message_id && (() => {
+                          const parentMsg = messages.find(pm => pm.id === m.context_message_id || pm.wa_message_id === m.context_message_id);
+                          const senderName = m.metadata?.reply_to_message?.sender_name || 
+                                            (parentMsg 
+                                              ? (parentMsg.direction === 'outbound' ? 'You' : (selectedContact?.name || selectedContact?.phone_number || 'Sender'))
+                                              : 'Message');
+                          const replyContent = m.metadata?.reply_to_message?.content || 
+                                              (parentMsg ? parentMsg.content : 'Click to view');
                           return (
-                            <div className="flex flex-col gap-1.5">
-                              <div className="rounded-lg overflow-hidden border border-[var(--color-wa-border)] bg-black/5 max-w-[280px]">
-                                <img
-                                  src={fileSrc}
-                                  alt="Image"
-                                  className="w-full h-auto max-h-[220px] object-cover cursor-pointer hover:opacity-95 transition-opacity"
-                                  onClick={() => {
-                                    setViewerMessage(m);
-                                    setZoomScale(1);
-                                  }}
-                                />
-                              </div>
-                              {m.content && m.content !== '[Image]' && (
-                                <WhatsAppMessageText text={m.content} className="mt-1" />
-                              )}
-                            </div>
-                          );
-                        case 'video':
-                          return (
-                            <div className="flex flex-col gap-1.5">
-                              <div className="rounded-lg overflow-hidden border border-[var(--color-wa-border)] bg-black/5 max-w-[280px]">
-                                <video
-                                  src={fileSrc}
-                                  controls
-                                  className="w-full h-auto max-h-[220px] object-contain"
-                                />
-                              </div>
-                              {m.content && m.content !== '[Video]' && (
-                                <WhatsAppMessageText text={m.content} className="mt-1" />
-                              )}
-                            </div>
-                          );
-                        case 'document': {
-                          const fileName = m.file_name || mediaObj?.fileName || 'Document';
-                          const fileSizeStr = m.file_size
-                            ? `${(m.file_size / 1024 / 1024).toFixed(2)} MB`
-                            : mediaObj?.file_size
-                            ? `${(mediaObj.file_size / 1024 / 1024).toFixed(2)} MB`
-                            : 'Unknown size';
-                          return (
-                            <div className="flex flex-col gap-1.5">
-                              <a
-                                href={fileSrc}
-                                download={fileName}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="flex items-center gap-3 p-2.5 bg-[var(--color-wa-bg)] hover:bg-[var(--color-wa-border)]/40 border border-[var(--color-wa-border)] rounded-lg transition-colors max-w-[280px]"
-                              >
-                                <div className="bg-red-500 text-white p-2 rounded-lg shrink-0">
-                                  <FileText size={20} />
-                                </div>
-                                <div className="flex-1 overflow-hidden min-w-0 text-left">
-                                  <p className="text-[12px] font-medium text-[var(--color-wa-text)] truncate">{fileName}</p>
-                                  <p className="text-[10px] text-[var(--color-wa-muted)] mt-0.5 uppercase font-mono">{fileSizeStr}</p>
-                                </div>
-                                <div className="text-[var(--color-wa-muted)] shrink-0 hover:text-[var(--color-wa-text)]">
-                                  <Download size={16} />
-                                </div>
-                              </a>
-                              {m.content && m.content !== '[Document]' && (
-                                <WhatsAppMessageText text={m.content} className="mt-1" />
-                              )}
-                            </div>
-                          );
-                        }
-                        default:
-                          return (
-                            <WhatsAppMessageText
-                              text={m.content || ''}
-                              isTemplate={mediaType === 'template'}
+                            <ReplyPreview
+                              senderName={senderName}
+                              content={replyContent}
+                              isOutbound={isOut}
+                              onClick={() => navigateToMessage(m.context_message_id!)}
                             />
                           );
-                      }
-                    })()}
-                    <div className={`flex items-center gap-1 mt-1.5 ${isOut ? 'justify-end' : 'justify-start'}`}>
-                      <span className={`text-[10px] ${isOut ? 'text-[var(--color-wa-teal)]' : 'text-[var(--color-wa-muted)]'}`}>
-                        {new Date(m.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                      {isOut && <MsgStatus status={m.status} />}
-                    </div>
+                        })()}
+                        {/* Media Render */}
+                        {(() => {
+                          const mediaObj = m.media && Array.isArray(m.media) && m.media.length > 0 ? m.media[0] : null;
+                          const mediaId = mediaObj?.id || m.media_url;
+                          const mediaType = m.message_type;
 
-                    {/* Reaction badges */}
-                    {(() => {
-                      const dbReactions = m.reactions || [];
-                      const allReactions = [...dbReactions];
-                      // Add local optimistic reaction if not already in DB
-                      if (m.myReaction && !dbReactions.some((r: any) => r.sender === 'me')) {
-                        allReactions.push({ emoji: m.myReaction, sender: 'me' });
-                      }
-                      if (allReactions.length === 0) return null;
-                      return (
-                        <div className={`absolute -bottom-3 ${isOut ? 'right-2' : 'left-2'} flex gap-0.5`}>
-                          {allReactions.map((r: any, idx: number) => (
-                            <button
-                              key={idx}
-                              onClick={() => {
-                                if (r.sender === 'me' && m.wa_message_id && selectedContact?.phone_number) {
-                                  sendReaction(selectedContact.phone_number, m.wa_message_id, '', m.id);
-                                }
-                              }}
-                              className="bg-white px-1.5 py-0.5 rounded-full shadow-md border border-[var(--color-wa-border)] text-sm hover:scale-110 transition-transform cursor-pointer"
-                              title={r.sender === 'me' ? 'Click to remove' : `Reacted by ${r.sender}`}
-                            >
-                              {r.emoji}
-                            </button>
-                          ))}
+                          if (!mediaId) {
+                            return (
+                              <WhatsAppMessageText
+                                text={m.content || ''}
+                                isTemplate={mediaType === 'template'}
+                              />
+                            );
+                          }
+
+                          const fileSrc = mediaId.startsWith('http') ? mediaId : `/api/media/${mediaId}`;
+
+                          switch (mediaType) {
+                            case 'image':
+                              return (
+                                <div className="flex flex-col gap-1.5">
+                                  <div className="rounded-lg overflow-hidden border border-[var(--color-wa-border)] bg-black/5 max-w-[280px]">
+                                    <img
+                                      src={fileSrc}
+                                      alt="Image"
+                                      className="w-full h-auto max-h-[220px] object-cover cursor-pointer hover:opacity-95 transition-opacity"
+                                      onClick={() => {
+                                        setViewerMessage(m);
+                                        setZoomScale(1);
+                                      }}
+                                    />
+                                  </div>
+                                  {m.content && m.content !== '[Image]' && (
+                                    <WhatsAppMessageText text={m.content} className="mt-1" />
+                                  )}
+                                </div>
+                              );
+                            case 'video':
+                              return (
+                                <div className="flex flex-col gap-1.5">
+                                  <div className="rounded-lg overflow-hidden border border-[var(--color-wa-border)] bg-black/5 max-w-[280px]">
+                                    <video
+                                      src={fileSrc}
+                                      controls
+                                      className="w-full h-auto max-h-[220px] object-contain"
+                                    />
+                                  </div>
+                                  {m.content && m.content !== '[Video]' && (
+                                    <WhatsAppMessageText text={m.content} className="mt-1" />
+                                  )}
+                                </div>
+                              );
+                            case 'document': {
+                              const fileName = m.file_name || mediaObj?.fileName || 'Document';
+                              const fileSizeStr = m.file_size
+                                ? `${(m.file_size / 1024 / 1024).toFixed(2)} MB`
+                                : mediaObj?.file_size
+                                ? `${(mediaObj.file_size / 1024 / 1024).toFixed(2)} MB`
+                                : 'Unknown size';
+                              return (
+                                <div className="flex flex-col gap-1.5">
+                                  <a
+                                    href={fileSrc}
+                                    download={fileName}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="flex items-center gap-3 p-2.5 bg-[var(--color-wa-bg)] hover:bg-[var(--color-wa-border)]/40 border border-[var(--color-wa-border)] rounded-lg transition-colors max-w-[280px]"
+                                  >
+                                    <div className="bg-red-500 text-white p-2 rounded-lg shrink-0">
+                                      <FileText size={20} />
+                                    </div>
+                                    <div className="flex-1 overflow-hidden min-w-0 text-left">
+                                      <p className="text-[12px] font-medium text-[var(--color-wa-text)] truncate">{fileName}</p>
+                                      <p className="text-[10px] text-[var(--color-wa-muted)] mt-0.5 uppercase font-mono">{fileSizeStr}</p>
+                                    </div>
+                                    <div className="text-[var(--color-wa-muted)] shrink-0 hover:text-[var(--color-wa-text)]">
+                                      <Download size={16} />
+                                    </div>
+                                  </a>
+                                  {m.content && m.content !== '[Document]' && (
+                                    <WhatsAppMessageText text={m.content} className="mt-1" />
+                                  )}
+                                </div>
+                              );
+                            }
+                            default:
+                              return (
+                                <WhatsAppMessageText
+                                  text={m.content || ''}
+                                  isTemplate={mediaType === 'template'}
+                                />
+                              );
+                          }
+                        })()}
+                        <div className={`flex items-center gap-1 mt-1.5 ${isOut ? 'justify-end' : 'justify-start'}`}>
+                          <span className={`text-[10px] ${isOut ? 'text-[var(--color-wa-teal)]' : 'text-[var(--color-wa-muted)]'}`}>
+                            {new Date(m.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          {isOut && <MsgStatus status={m.status} />}
                         </div>
-                      );
-                    })()}
-                  </div>
 
-                  {/* ── Floating actions (appear on hover) ── */}
-                  <div className={`absolute -top-1 ${isOut ? '-left-16' : '-right-16'} opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-20 flex gap-1`}>
-                    <button
-                      type="button"
-                      className="p-1.5 rounded-full shadow-sm border bg-white/95 text-[var(--color-wa-muted)] hover:text-[var(--color-wa-text)] border-[var(--color-wa-border)] cursor-pointer"
-                      onClick={() => setReplyingToMessage(m)}
-                      title="Reply"
-                    >
-                      <Reply size={14} />
-                    </button>
-                    <button
-                      className={`p-1.5 rounded-full shadow-sm border transition-all ${
-                        reactingToId === m.id
-                          ? 'bg-[var(--color-wa-green)] text-white border-[var(--color-wa-green)]'
-                          : 'bg-white/95 text-[var(--color-wa-muted)] hover:text-[var(--color-wa-text)] border-[var(--color-wa-border)]'
-                      }`}
-                      onClick={() => setReactingToId(reactingToId === m.id ? null : m.id)}
-                    >
-                      <SmilePlus size={14} />
-                    </button>
-
-                    {/* ── Reaction bar (WhatsApp-style dark pill) ── */}
-                    {reactingToId === m.id && (
-                      <div
-                        className={`absolute top-0 ${
-                          isOut ? 'right-full mr-1.5' : 'left-full ml-1.5'
-                        } flex items-center bg-[#1F2C34] px-2 py-1.5 rounded-full shadow-xl gap-1 animate-scaleIn`}
-                      >
-                        {['👍', '❤️', '😂', '😮', '😢', '🙏'].map(emoji => (
-                          <button
-                            key={emoji}
-                            onClick={() => {
-                              if (m.wa_message_id && selectedContact?.phone_number) {
-                                sendReaction(selectedContact.phone_number, m.wa_message_id, emoji, m.id);
-                              }
-                              setReactingToId(null);
-                            }}
-                            className="text-xl p-0.5 hover:scale-[1.35] transition-transform duration-150 hover:bg-white/10 rounded"
-                          >
-                            {emoji}
-                          </button>
-                        ))}
-                        <div className="w-px h-5 bg-white/20 mx-0.5" />
-                        <button
-                          onClick={() => {
-                            setReactingToId(null);
-                            setShowEmoji(true);
-                          }}
-                          className="text-white/70 hover:text-white p-1 hover:bg-white/10 rounded transition-colors"
-                          title="More emojis"
-                        >
-                          <SmilePlus size={16} />
-                        </button>
+                        {/* Reaction badges */}
+                        {(() => {
+                          const dbReactions = m.reactions || [];
+                          const allReactions = [...dbReactions];
+                          // Add local optimistic reaction if not already in DB
+                          if (m.myReaction && !dbReactions.some((r: any) => r.sender === 'me')) {
+                            allReactions.push({ emoji: m.myReaction, sender: 'me' });
+                          }
+                          if (allReactions.length === 0) return null;
+                          return (
+                            <div className={`absolute -bottom-3 ${isOut ? 'right-2' : 'left-2'} flex gap-0.5`}>
+                              {allReactions.map((r: any, idx: number) => (
+                                <button
+                                  key={idx}
+                                  onClick={() => {
+                                    if (r.sender === 'me' && m.wa_message_id && selectedContact?.phone_number) {
+                                      sendReaction(selectedContact.phone_number, m.wa_message_id, '', m.id);
+                                    }
+                                  }}
+                                  className="bg-white px-1.5 py-0.5 rounded-full shadow-md border border-[var(--color-wa-border)] text-sm hover:scale-110 transition-transform cursor-pointer"
+                                  title={r.sender === 'me' ? 'Click to remove' : `Reacted by ${r.sender}`}
+                                >
+                                  {r.emoji}
+                                </button>
+                              ))}
+                            </div>
+                          );
+                        })()}
                       </div>
-                    )}
+
+                      {/* ── Floating actions (appear on hover) ── */}
+                      <div className={`absolute -top-1 ${isOut ? '-left-16' : '-right-16'} opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-20 flex gap-1`}>
+                        <button
+                          type="button"
+                          className="p-1.5 rounded-full shadow-sm border bg-white/95 text-[var(--color-wa-muted)] hover:text-[var(--color-wa-text)] border-[var(--color-wa-border)] cursor-pointer"
+                          onClick={() => setReplyingToMessage(m)}
+                          title="Reply"
+                        >
+                          <Reply size={14} />
+                        </button>
+                        <button
+                          className={`p-1.5 rounded-full shadow-sm border transition-all ${
+                            reactingToId === m.id
+                              ? 'bg-[var(--color-wa-green)] text-white border-[var(--color-wa-green)]'
+                              : 'bg-white/95 text-[var(--color-wa-muted)] hover:text-[var(--color-wa-text)] border-[var(--color-wa-border)]'
+                          }`}
+                          onClick={() => setReactingToId(reactingToId === m.id ? null : m.id)}
+                        >
+                          <SmilePlus size={14} />
+                        </button>
+
+                        {/* ── Reaction bar (WhatsApp-style dark pill) ── */}
+                        {reactingToId === m.id && (
+                          <div
+                            className={`absolute top-0 ${
+                              isOut ? 'right-full mr-1.5' : 'left-full ml-1.5'
+                            } flex items-center bg-[#1F2C34] px-2 py-1.5 rounded-full shadow-xl gap-1 animate-scaleIn`}
+                          >
+                            {['👍', '❤️', '😂', '😮', '😢', '🙏'].map(emoji => (
+                              <button
+                                key={emoji}
+                                onClick={() => {
+                                  if (m.wa_message_id && selectedContact?.phone_number) {
+                                    sendReaction(selectedContact.phone_number, m.wa_message_id, emoji, m.id);
+                                  }
+                                  setReactingToId(null);
+                                }}
+                                className="text-xl p-0.5 hover:scale-[1.35] transition-transform duration-150 hover:bg-white/10 rounded"
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                            <div className="w-px h-5 bg-white/20 mx-0.5" />
+                            <button
+                              onClick={() => {
+                                setReactingToId(null);
+                                setShowEmoji(true);
+                              }}
+                              className="text-white/70 hover:text-white p-1 hover:bg-white/10 rounded transition-colors"
+                              title="More emojis"
+                            >
+                              <SmilePlus size={16} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
+                  );
+                })}
               </div>
-              );
-            })}
+            ))}
             <div ref={messagesEndRef} />
           </div>
 
