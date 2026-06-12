@@ -4,7 +4,15 @@ import { createAdminClient } from '@/lib/supabase/server';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { user_id, wamid, phone, template_name, parameters } = body;
+    let { user_id, wamid, phone, template_name, parameters } = body;
+
+    // Normalize phone number to prevent duplicate contacts
+    if (phone) {
+      phone = phone.toString().replace(/\D/g, ''); // Remove any non-numeric characters
+      if (phone.length === 10) {
+        phone = `91${phone}`;
+      }
+    }
 
     // Validate required fields
     if (!user_id || !wamid || !phone || !template_name) {
