@@ -280,7 +280,7 @@ export const useDashStore = create<DashStore>((set, get) => ({
       // Resolve template content dynamically
       const resolvedData = await resolveTemplatesForMessages(data || []);
       
-      const mapped: DashMessage[] = resolvedData.reverse().map((log: any) => ({
+      const mapped: DashMessage[] = resolvedData.map((log: any) => ({
           id: log.id,
           conversation_id: log.conversation_id,
           direction: log.direction,
@@ -418,7 +418,7 @@ export const useDashStore = create<DashStore>((set, get) => ({
       // Resolve template content dynamically
       const resolvedData = await resolveTemplatesForMessages(data);
 
-      const olderMapped: DashMessage[] = resolvedData.reverse().map((log: any) => ({
+      const olderMapped: DashMessage[] = resolvedData.map((log: any) => ({
         id: log.id,
         conversation_id: log.conversation_id,
         direction: log.direction,
