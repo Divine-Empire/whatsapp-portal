@@ -31,6 +31,30 @@ export async function GET(request: NextRequest) {
       accessToken: config.access_token,
     });
 
+    // 2.5 Sync templates to the local DB table (whatsapp_portal_templates)
+    if (metaTemplates && metaTemplates.length > 0) {
+      const dbTemplates = metaTemplates.map((t: any) => ({
+        user_id: activeUserId,
+        template_name: t.name,
+        category: t.category,
+        language: t.language,
+        status: t.status,
+        body: t.body || '',
+        header: t.header || '',
+        footer: t.footer || '',
+      }));
+
+      const { error: syncErr } = await supabase
+        .from('whatsapp_portal_templates')
+        .upsert(dbTemplates, { onConflict: 'user_id,template_name' });
+
+      if (syncErr) {
+        console.error('⚠️ Error syncing templates to database:', syncErr);
+      } else {
+        console.log(`✅ Synced ${dbTemplates.length} templates to database.`);
+      }
+    }
+
     // 3. Fetch Message Stats from Database
     // We group by template_name to get counts
     const { data: messages, error: msgErr } = await supabase
