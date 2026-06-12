@@ -26,20 +26,28 @@ export async function POST(request: NextRequest) {
 
     // Fetch template details to construct message body
     let finalContent = `[Template: ${template_name}]`;
-    const { data: templateData, error: templateError } = await supabase
+    let { data: templateData, error: templateError } = await supabase
       .from('whatsapp_portal_templates')
       .select('body, header, footer')
       .eq('template_name', template_name)
-      .single();
+      .eq('user_id', user_id)
+      .maybeSingle();
 
     let resolvedTemplateData = templateData;
     if (templateError && (templateError.code === '42703' || templateError.message?.toLowerCase().includes('footer'))) {
-      const { data: retryData } = await supabase
+      const { data: retryData, error: retryError } = await supabase
         .from('whatsapp_portal_templates')
         .select('body, header')
         .eq('template_name', template_name)
-        .single();
+        .eq('user_id', user_id)
+        .maybeSingle();
+      
       resolvedTemplateData = retryData;
+      if (retryError) {
+        console.error('Error fetching template (retry):', retryError);
+      }
+    } else if (templateError) {
+      console.error('Error fetching template:', templateError);
     }
 
     if (resolvedTemplateData) {
