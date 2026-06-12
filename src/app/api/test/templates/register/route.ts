@@ -16,6 +16,49 @@ export async function POST(request: NextRequest) {
 
     const supabase = createAdminClient();
 
+    // Fetch template details to construct message body
+    let finalContent = `[Template: ${template_name}]`;
+    const { data: templateData, error: templateError } = await supabase
+      .from('whatsapp_portal_templates')
+      .select('body, header, footer')
+      .eq('template_name', template_name)
+      .single();
+
+    let resolvedTemplateData = templateData;
+    if (templateError && (templateError.code === '42703' || templateError.message?.toLowerCase().includes('footer'))) {
+      const { data: retryData } = await supabase
+        .from('whatsapp_portal_templates')
+        .select('body, header')
+        .eq('template_name', template_name)
+        .single();
+      resolvedTemplateData = retryData;
+    }
+
+    if (resolvedTemplateData) {
+      let paramIndex = 0;
+      const paramsArray = parameters || [];
+      const replacePlaceholders = (text: string | undefined) => {
+        if (!text) return '';
+        return text.replace(/\{\{(\d+)\}\}/g, () => {
+          const val = paramsArray[paramIndex++];
+          return val !== undefined && val !== null ? String(val) : '';
+        });
+      };
+
+      const resolvedHeader = replacePlaceholders(resolvedTemplateData.header);
+      const resolvedBody = replacePlaceholders(resolvedTemplateData.body);
+      const resolvedFooter = replacePlaceholders(resolvedTemplateData.footer);
+
+      let fullContent = '';
+      if (resolvedHeader) fullContent += `*${resolvedHeader.trim()}*\n\n`;
+      fullContent += resolvedBody;
+      if (resolvedFooter) fullContent += `\n\n_${resolvedFooter.trim()}_`;
+      
+      if (fullContent.trim()) {
+        finalContent = fullContent.trim();
+      }
+    }
+
     // 1. Resolve Contact (Find or Create)
     const { data: contact, error: contactError } = await supabase
       .from('whatsapp_portal_contacts')
@@ -46,7 +89,7 @@ export async function POST(request: NextRequest) {
         {
           user_id,
           contact_id: contact.id,
-          last_message: `[Template: ${template_name}]`,
+          last_message: finalContent,
           last_message_at: new Date().toISOString(),
         },
         { onConflict: 'user_id,contact_id' }
@@ -78,7 +121,7 @@ export async function POST(request: NextRequest) {
           template_name,
           metadata,
           source: 'sheet',
-          content: `[Template: ${template_name}]`,
+          content: finalContent,
         },
         { onConflict: 'wa_message_id' }
       )
