@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/server';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
+    console.log("🚨 RAW INCOMING PAYLOAD FROM SHEET:", JSON.stringify(body, null, 2));
     let { user_id, wamid, phone, template_name, parameters } = body;
 
     // Normalize phone number to prevent duplicate contacts
@@ -28,7 +29,7 @@ export async function POST(request: NextRequest) {
     let finalContent = `[Template: ${template_name}]`;
     let { data: templateData, error: templateError } = await supabase
       .from('whatsapp_portal_templates')
-      .select('body, header, footer')
+      .select('template_name, body, header, footer')
       .eq('template_name', template_name)
       .eq('user_id', user_id)
       .maybeSingle();
@@ -37,7 +38,7 @@ export async function POST(request: NextRequest) {
     if (templateError && (templateError.code === '42703' || templateError.message?.toLowerCase().includes('footer'))) {
       const { data: retryData, error: retryError } = await supabase
         .from('whatsapp_portal_templates')
-        .select('body, header')
+        .select('template_name, body, header')
         .eq('template_name', template_name)
         .eq('user_id', user_id)
         .maybeSingle();
@@ -49,6 +50,28 @@ export async function POST(request: NextRequest) {
     } else if (templateError) {
       console.error('Error fetching template:', templateError);
     }
+
+    // --- FALLBACK: Fuzzy Matching ---
+    if (!resolvedTemplateData) {
+      const { data: allTemplates, error: allTemplatesError } = await supabase
+        .from('whatsapp_portal_templates')
+        .select('template_name, body, header')
+        .eq('user_id', user_id);
+
+      if (!allTemplatesError && allTemplates && allTemplates.length > 0) {
+        const normalize = (name: string) => name.toLowerCase().replace(/_/g, '').trim();
+        const normalizedTarget = normalize(template_name);
+
+        const matchedTemplate = allTemplates.find((t: any) => normalize(t.template_name) === normalizedTarget);
+
+        if (matchedTemplate) {
+          resolvedTemplateData = matchedTemplate;
+          // Re-assign the precise DB template name (e.g. nabl_renewal_reminder) to ensure data integrity during upsert
+          template_name = matchedTemplate.template_name;
+        }
+      }
+    }
+    // --------------------------------
 
     if (resolvedTemplateData) {
       let paramIndex = 0;
