@@ -264,6 +264,30 @@ export default function InboxPage() {
   const [viewerMessage, setViewerMessage] = useState<any>(null);
   const [zoomScale, setZoomScale] = useState(1);
 
+  // Track downloaded status for PDF and other media items
+  const [downloadedMedia, setDownloadedMedia] = useState<Record<string, boolean>>({});
+
+  const handleDownloadMedia = async (url: string, fileName: string, messageId: string) => {
+    try {
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(blobUrl);
+      
+      setDownloadedMedia(prev => ({ ...prev, [messageId]: true }));
+    } catch (err) {
+      console.error('Failed to download file:', err);
+      window.open(url, '_blank');
+      setDownloadedMedia(prev => ({ ...prev, [messageId]: true }));
+    }
+  };
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const imageInputRef  = useRef<HTMLInputElement>(null);
   const docInputRef    = useRef<HTMLInputElement>(null);
@@ -718,6 +742,103 @@ export default function InboxPage() {
                             />
                           );
                         })()}
+                        {/* PDF Link Preview at the Top */}
+                        {(() => {
+                          const getFileNameFromUrl = (url: string) => {
+                            try {
+                              const decoded = decodeURIComponent(url);
+                              const pathname = new URL(decoded).pathname;
+                              const name = pathname.substring(pathname.lastIndexOf('/') + 1);
+                              return name || 'document.pdf';
+                            } catch {
+                              const lastPart = url.substring(url.lastIndexOf('/') + 1);
+                              return lastPart.split('?')[0] || 'document.pdf';
+                            }
+                          };
+
+                          let pdfUrl = '';
+                          let pdfName = '';
+
+                          if (m.metadata?.media_url) {
+                            const url = m.metadata.media_url;
+                            if (url.toLowerCase().endsWith('.pdf') || url.toLowerCase().includes('pdf')) {
+                              pdfUrl = url;
+                              pdfName = m.metadata.file_name || getFileNameFromUrl(url);
+                            }
+                          }
+
+                          if (!pdfUrl) {
+                            const mediaObj = m.media && Array.isArray(m.media) && m.media.length > 0 ? m.media[0] : null;
+                            const mediaId = mediaObj?.id || m.media_url;
+                            if (mediaId && m.message_type === 'document') {
+                              const url = mediaId.startsWith('http') ? mediaId : `/api/media/${mediaId}`;
+                              const name = m.file_name || mediaObj?.fileName || 'Document';
+                              if (name.toLowerCase().endsWith('.pdf') || url.toLowerCase().endsWith('.pdf') || url.toLowerCase().includes('pdf')) {
+                                pdfUrl = url;
+                                pdfName = name;
+                              }
+                            }
+                          }
+
+                          if (!pdfUrl) return null;
+
+                          const timeStr = new Date(m.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+
+                          return (
+                            <div
+                              className={`
+                                flex flex-col rounded-[6px] overflow-hidden text-left mb-2.5 transition-all select-none border border-[var(--color-wa-border)] bg-black/5
+                              `}
+                            >
+                              {/* Top row with PDF icon, filename, and timestamp */}
+                              <div className="flex items-center gap-2.5 p-2 min-h-[44px]">
+                                {/* PDF Badge */}
+                                <div className="bg-[#EF4444] text-white text-[9px] font-extrabold px-1.5 py-1 rounded shrink-0 flex items-center justify-center h-8 w-8 select-none shadow-sm">
+                                  PDF
+                                </div>
+                                <div className="flex-1 min-w-0 text-[13px] font-medium text-[var(--color-wa-text)] truncate pr-1">
+                                  {pdfName}
+                                </div>
+                                <div className="text-[10px] text-[var(--color-wa-muted)] shrink-0 pr-1">
+                                  {timeStr}
+                                </div>
+                              </div>
+                              
+                              {/* Action buttons row */}
+                              <div className="flex items-center gap-4 px-3 pb-2 pt-1.5 text-xs font-semibold select-none border-t border-[var(--color-wa-border)]/30">
+                                {!downloadedMedia[m.id] ? (
+                                  <button
+                                    onClick={() => handleDownloadMedia(pdfUrl, pdfName, m.id)}
+                                    className="text-[#25D366] hover:underline cursor-pointer flex items-center gap-1"
+                                  >
+                                    <Download size={14} /> Download
+                                  </button>
+                                ) : (
+                                  <>
+                                    <a
+                                      href={pdfUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-[#25D366] hover:underline cursor-pointer"
+                                    >
+                                      Open
+                                    </a>
+                                    <a
+                                      href={pdfUrl}
+                                      download={pdfName}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-[#25D366] hover:underline cursor-pointer"
+                                    >
+                                      Save as...
+                                    </a>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
+
                         {/* Media Render */}
                         {(() => {
                           const mediaObj = m.media && Array.isArray(m.media) && m.media.length > 0 ? m.media[0] : null;
@@ -750,6 +871,21 @@ export default function InboxPage() {
                                       }}
                                     />
                                   </div>
+                                  <div className="flex items-center gap-4 px-1 py-1 text-xs font-semibold select-none">
+                                    {!downloadedMedia[m.id] ? (
+                                      <button
+                                        onClick={() => handleDownloadMedia(fileSrc, mediaObj?.fileName || 'image.jpg', m.id)}
+                                        className="text-[#25D366] hover:underline cursor-pointer flex items-center gap-1"
+                                      >
+                                        <Download size={14} /> Download
+                                      </button>
+                                    ) : (
+                                      <>
+                                        <a href={fileSrc} target="_blank" rel="noreferrer" className="text-[#25D366] hover:underline cursor-pointer">Open</a>
+                                        <a href={fileSrc} download={mediaObj?.fileName || 'image.jpg'} target="_blank" rel="noreferrer" className="text-[#25D366] hover:underline cursor-pointer">Save as...</a>
+                                      </>
+                                    )}
+                                  </div>
                                   {m.content && m.content !== '[Image]' && (
                                     <WhatsAppMessageText text={m.content} className="mt-1" />
                                   )}
@@ -765,6 +901,21 @@ export default function InboxPage() {
                                       className="w-full h-auto max-h-[220px] object-contain"
                                     />
                                   </div>
+                                  <div className="flex items-center gap-4 px-1 py-1 text-xs font-semibold select-none">
+                                    {!downloadedMedia[m.id] ? (
+                                      <button
+                                        onClick={() => handleDownloadMedia(fileSrc, mediaObj?.fileName || 'video.mp4', m.id)}
+                                        className="text-[#25D366] hover:underline cursor-pointer flex items-center gap-1"
+                                      >
+                                        <Download size={14} /> Download
+                                      </button>
+                                    ) : (
+                                      <>
+                                        <a href={fileSrc} target="_blank" rel="noreferrer" className="text-[#25D366] hover:underline cursor-pointer">Open</a>
+                                        <a href={fileSrc} download={mediaObj?.fileName || 'video.mp4'} target="_blank" rel="noreferrer" className="text-[#25D366] hover:underline cursor-pointer">Save as...</a>
+                                      </>
+                                    )}
+                                  </div>
                                   {m.content && m.content !== '[Video]' && (
                                     <WhatsAppMessageText text={m.content} className="mt-1" />
                                   )}
@@ -772,6 +923,14 @@ export default function InboxPage() {
                               );
                             case 'document': {
                               const fileName = m.file_name || mediaObj?.fileName || 'Document';
+                              const isPdf = fileName.toLowerCase().endsWith('.pdf') || fileSrc.toLowerCase().endsWith('.pdf') || fileSrc.toLowerCase().includes('pdf');
+                              
+                              if (isPdf) {
+                                return m.content && m.content !== '[Document]' ? (
+                                  <WhatsAppMessageText text={m.content} className="mt-1" />
+                                ) : null;
+                              }
+
                               const fileSizeStr = m.file_size
                                 ? `${(m.file_size / 1024 / 1024).toFixed(2)} MB`
                                 : mediaObj?.file_size
@@ -779,13 +938,7 @@ export default function InboxPage() {
                                 : 'Unknown size';
                               return (
                                 <div className="flex flex-col gap-1.5">
-                                  <a
-                                    href={fileSrc}
-                                    download={fileName}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="flex items-center gap-3 p-2.5 bg-[var(--color-wa-bg)] hover:bg-[var(--color-wa-border)]/40 border border-[var(--color-wa-border)] rounded-lg transition-colors max-w-[280px]"
-                                  >
+                                  <div className="flex items-center gap-3 p-2.5 bg-[var(--color-wa-bg)] border border-[var(--color-wa-border)] rounded-lg transition-colors max-w-[280px]">
                                     <div className="bg-red-500 text-white p-2 rounded-lg shrink-0">
                                       <FileText size={20} />
                                     </div>
@@ -793,10 +946,22 @@ export default function InboxPage() {
                                       <p className="text-[12px] font-medium text-[var(--color-wa-text)] truncate">{fileName}</p>
                                       <p className="text-[10px] text-[var(--color-wa-muted)] mt-0.5 uppercase font-mono">{fileSizeStr}</p>
                                     </div>
-                                    <div className="text-[var(--color-wa-muted)] shrink-0 hover:text-[var(--color-wa-text)]">
-                                      <Download size={16} />
-                                    </div>
-                                  </a>
+                                  </div>
+                                  <div className="flex items-center gap-4 px-3 pb-1 pt-1 text-xs font-semibold select-none border-t border-[var(--color-wa-border)]/30 mt-1">
+                                    {!downloadedMedia[m.id] ? (
+                                      <button
+                                        onClick={() => handleDownloadMedia(fileSrc, fileName, m.id)}
+                                        className="text-[#25D366] hover:underline cursor-pointer flex items-center gap-1"
+                                      >
+                                        <Download size={14} /> Download
+                                      </button>
+                                    ) : (
+                                      <>
+                                        <a href={fileSrc} target="_blank" rel="noreferrer" className="text-[#25D366] hover:underline cursor-pointer">Open</a>
+                                        <a href={fileSrc} download={fileName} target="_blank" rel="noreferrer" className="text-[#25D366] hover:underline cursor-pointer">Save as...</a>
+                                      </>
+                                    )}
+                                  </div>
                                   {m.content && m.content !== '[Document]' && (
                                     <WhatsAppMessageText text={m.content} className="mt-1" />
                                   )}
@@ -822,6 +987,8 @@ export default function InboxPage() {
                           const isImage = /\.(png|jpe?g|gif|webp|bmp)/i.test(lowerUrl) || lowerUrl.includes('image');
                           const isPdf = /\.pdf/i.test(lowerUrl) || lowerUrl.includes('pdf');
 
+                          if (isPdf) return null;
+
                           return (
                             <div className="mt-2 bg-gray-50 text-gray-800 border border-gray-200 rounded p-2 max-w-[280px]">
                               {isImage ? (
@@ -839,7 +1006,7 @@ export default function InboxPage() {
                                 >
                                   <span className="text-base">📄</span>
                                   <span className="truncate">
-                                    {isPdf ? 'View Attached PDF' : 'Download Document'}
+                                    Download Document
                                   </span>
                                 </a>
                               )}
