@@ -293,11 +293,14 @@ export const useDashStore = create<DashStore>((set, get) => ({
           delivered_at: log.delivered_at,
           seen_at: log.seen_at,
           media: log.media,
-          media_url: log.media_url,
+          media_url: log.media_url || log.metadata?.media_url || '',
           file_name: log.file_name,
           file_size: log.file_size,
           context_message_id: log.context_message_id,
-          metadata: log.metadata
+          metadata: {
+            ...log.metadata,
+            media_url: log.metadata?.media_url || log.media_url || ''
+          }
         }));
 
         const reversed = mapped.reverse();
@@ -330,11 +333,14 @@ export const useDashStore = create<DashStore>((set, get) => ({
           delivered_at: log.delivered_at,
           seen_at: log.seen_at,
           media: log.media,
-          media_url: log.media_url,
+          media_url: log.media_url || log.metadata?.media_url || '',
           file_name: log.file_name,
           file_size: log.file_size,
           context_message_id: log.context_message_id,
-          metadata: log.metadata
+          metadata: {
+            ...log.metadata,
+            media_url: log.metadata?.media_url || log.media_url || ''
+          }
         }));
 
         const newestInDb = mapped.reverse(); // Now ascending
@@ -367,9 +373,13 @@ export const useDashStore = create<DashStore>((set, get) => ({
               reactions: msg.reactions,
               delivered_at: msg.delivered_at,
               seen_at: msg.seen_at,
-              media_url: msg.media_url || existing.media_url,
+              media_url: msg.media_url || existing.media_url || "",
               context_message_id: msg.context_message_id || existing.context_message_id,
-              metadata: msg.metadata || existing.metadata
+              metadata: {
+                ...existing.metadata,
+                ...msg.metadata,
+                media_url: msg.metadata?.media_url || msg.media_url || existing.metadata?.media_url || existing.media_url || ""
+              }
             });
           } else {
             // Append only if it is newer than the newest in state (avoids duplicate/overlapping prepended messages)
@@ -431,11 +441,14 @@ export const useDashStore = create<DashStore>((set, get) => ({
         delivered_at: log.delivered_at,
         seen_at: log.seen_at,
         media: log.media,
-        media_url: log.media_url,
+        media_url: log.media_url || log.metadata?.media_url || '',
         file_name: log.file_name,
         file_size: log.file_size,
         context_message_id: log.context_message_id,
-        metadata: log.metadata
+        metadata: {
+          ...log.metadata,
+          media_url: log.metadata?.media_url || log.media_url || ''
+        }
       }));
 
       const reversed = olderMapped.reverse();
@@ -474,11 +487,14 @@ export const useDashStore = create<DashStore>((set, get) => ({
         delivered_at: data.delivered_at,
         seen_at: data.seen_at,
         media: data.media,
-        media_url: data.media_url,
+        media_url: data.media_url || data.metadata?.media_url || '',
         file_name: data.file_name,
         file_size: data.file_size,
         context_message_id: data.context_message_id,
-        metadata: data.metadata,
+        metadata: {
+          ...data.metadata,
+          media_url: data.metadata?.media_url || data.media_url || ''
+        },
       };
     } catch (err) {
       console.error('Failed to fetch single message:', err);
