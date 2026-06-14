@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { useMessageNavigation } from '@/hooks/useMessageNavigation';
 import { ReplyPreview } from '@/components/ReplyPreview';
+import TemplateButtonsBlock from '@/components/dash/TemplateButtonsBlock';
 
 // Dynamic import — EmojiPicker only runs in browser (no SSR)
 const EmojiPicker = dynamic(() => import('emoji-picker-react'), { ssr: false });
@@ -1020,6 +1021,8 @@ export default function InboxPage() {
                           </span>
                           {isOut && <MsgStatus status={m.status} />}
                         </div>
+
+                        <TemplateButtonsBlock buttons={m.buttons} isOutbound={isOut} />
 
                         {/* Reaction badges */}
                         {(() => {

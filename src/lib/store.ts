@@ -133,6 +133,7 @@ export interface DashMessage {
   delivered_at?: string;
   seen_at?: string;
   context_message_id?: string;
+  buttons?: any[];
   metadata?: {
     reply_to_message?: {
       sender_name: string;
@@ -140,6 +141,18 @@ export interface DashMessage {
     };
     [key: string]: any;
   };
+}
+
+export interface Template {
+  id?: string;
+  template_name: string;
+  body?: string;
+  header?: string;
+  footer?: string;
+  language?: string;
+  category?: string;
+  status?: string;
+  normalized_name: string;
 }
 
 export interface DashStore {
@@ -160,6 +173,9 @@ export interface DashStore {
   setReplyingToMessage: (msg: DashMessage | null) => void;
   fetchSingleMessage: (messageId: string) => Promise<DashMessage | null>;
   insertFetchedMessage: (msg: DashMessage) => void;
+
+  templates: Template[];
+  fetchTemplates: () => Promise<void>;
 
   fetchConversations: () => Promise<void>;
   fetchMessages: (conversationId: string, isInitial?: boolean) => Promise<void>;
@@ -205,6 +221,33 @@ export const useDashStore = create<DashStore>((set, get) => ({
   messages: [],
   searchQuery: '',
   setSearchQuery: (query) => set({ searchQuery: query }),
+
+  templates: [],
+  fetchTemplates: async () => {
+    try {
+      const { data, error } = await supabase
+        .from('whatsapp_portal_templates')
+        .select('*');
+
+      if (error) throw error;
+
+      const mapped = (data || []).map((t: any) => ({
+        id: t.id,
+        template_name: t.template_name,
+        body: t.body,
+        header: t.header,
+        footer: t.footer,
+        language: t.language,
+        category: t.category,
+        status: t.status,
+        normalized_name: t.template_name.toLowerCase().replace(/_/g, '').trim()
+      }));
+
+      set({ templates: mapped });
+    } catch (err: any) {
+      console.error('Failed to fetch templates:', err?.message || err);
+    }
+  },
 
   fetchConversations: async () => {
     set({ loadingConversations: true, error: null });
@@ -297,6 +340,7 @@ export const useDashStore = create<DashStore>((set, get) => ({
           file_name: log.file_name,
           file_size: log.file_size,
           context_message_id: log.context_message_id,
+          buttons: log.buttons || log.metadata?.buttons,
           metadata: {
             ...log.metadata,
             media_url: log.metadata?.media_url || log.media_url || ''
@@ -337,6 +381,7 @@ export const useDashStore = create<DashStore>((set, get) => ({
           file_name: log.file_name,
           file_size: log.file_size,
           context_message_id: log.context_message_id,
+          buttons: log.buttons || log.metadata?.buttons,
           metadata: {
             ...log.metadata,
             media_url: log.metadata?.media_url || log.media_url || ''
@@ -445,6 +490,7 @@ export const useDashStore = create<DashStore>((set, get) => ({
         file_name: log.file_name,
         file_size: log.file_size,
         context_message_id: log.context_message_id,
+        buttons: log.buttons || log.metadata?.buttons,
         metadata: {
           ...log.metadata,
           media_url: log.metadata?.media_url || log.media_url || ''
@@ -491,6 +537,7 @@ export const useDashStore = create<DashStore>((set, get) => ({
         file_name: data.file_name,
         file_size: data.file_size,
         context_message_id: data.context_message_id,
+        buttons: data.buttons || data.metadata?.buttons,
         metadata: {
           ...data.metadata,
           media_url: data.metadata?.media_url || data.media_url || ''
