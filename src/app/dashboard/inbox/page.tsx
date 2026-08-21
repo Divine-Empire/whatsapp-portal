@@ -912,28 +912,52 @@ export default function InboxPage() {
                           if (!mediaUrl) return null;
 
                           const mediaUrlLower = mediaUrl.toLowerCase();
+                          const detectedMediaType = (m.metadata?.media_type || m.message_type || '').toLowerCase();
+
+                          const isVideo = 
+                            detectedMediaType === 'video' ||
+                            m.mime_type?.startsWith('video/') ||
+                            mediaUrlLower.match(/\.(mp4|3gp|3gpp|mov|webm)($|\?)/i) ||
+                            (mediaUrlLower.includes('video') && !mediaUrlLower.includes('.pdf') && !mediaUrlLower.includes('.jpg') && !mediaUrlLower.includes('.png'));
 
                           const isImage = 
-                            ((mediaUrlLower.match(/\.(jpg|jpeg|png|webp|gif)($|\?)/i) || 
-                              mediaUrlLower.includes("image") ||
-                              m.message_type === "image" ||
-                              m.mime_type?.startsWith("image/")) && 
-                             isTemplateMedia);
+                            !isVideo && (
+                              detectedMediaType === 'image' ||
+                              m.mime_type?.startsWith('image/') ||
+                              mediaUrlLower.match(/\.(jpg|jpeg|png|webp|gif)($|\?)/i) ||
+                              mediaUrlLower.includes('image')
+                            );
 
                           const isDocument = 
-                            mediaUrlLower.includes(".pdf") || 
-                            (mediaUrlLower.includes("drive.google.com") && !isImage) ||
-                            m.message_type === "document" ||
-                            m.mime_type === "application/pdf" ||
-                            !!m.file_name?.toLowerCase().endsWith('.pdf');
+                            !isVideo && !isImage && (
+                              detectedMediaType === 'document' ||
+                              m.mime_type === 'application/pdf' ||
+                              mediaUrlLower.includes('.pdf') ||
+                              mediaUrlLower.includes('drive.google.com') ||
+                              m.file_name?.toLowerCase().endsWith('.pdf') ||
+                              true // Fallback for other file links
+                            );
+
+                          if (isVideo) {
+                            return (
+                              <div className="w-[calc(100%+24px)] mb-2 overflow-hidden rounded-t-sm -mx-3 -mt-2 bg-black/90 select-none">
+                                <video 
+                                  src={mediaUrl} 
+                                  controls 
+                                  preload="metadata"
+                                  className="w-full h-auto max-h-[300px] object-contain block bg-black rounded-t-sm"
+                                />
+                              </div>
+                            );
+                          }
 
                           if (isImage) {
                             return (
-                              <div className="w-[calc(100%+24px)] mb-2 overflow-hidden rounded-t-sm -mx-3 -mt-2 select-none">
+                              <div className="w-[calc(100%+24px)] mb-2 overflow-hidden rounded-t-sm -mx-3 -mt-2 select-none bg-black/5">
                                 <img 
                                   src={mediaUrl} 
                                   alt="Embedded Template Media View" 
-                                  className="w-full h-auto max-h-[300px] object-cover block cursor-pointer"
+                                  className="w-full h-auto max-h-[300px] object-cover block cursor-pointer hover:opacity-95 transition-opacity"
                                   onClick={() => {
                                     setViewerMessage(m);
                                     setZoomScale(1);
@@ -944,6 +968,7 @@ export default function InboxPage() {
                           }
 
                           if (isDocument) {
+                            const isPdf = mediaUrlLower.includes('.pdf') || fileName.toLowerCase().endsWith('.pdf');
                             return (
                               <div className="w-[calc(100%+24px)] mb-2 bg-black/20 hover:bg-black/30 transition-colors p-3 flex items-center justify-between rounded-t-sm -mx-3 -mt-2 border-b border-black/5 text-white">
                                 <div className="flex items-center space-x-3 overflow-hidden pr-2">
@@ -952,10 +977,10 @@ export default function InboxPage() {
                                   </svg>
                                   <div className="flex flex-col truncate">
                                     <span className="text-sm font-medium truncate tracking-wide text-gray-100">
-                                      {getFileName(mediaUrl)}
+                                      {fileName}
                                     </span>
                                     <span className="text-xs text-gray-300 font-light mt-0.5">
-                                      PDF Document
+                                      {isPdf ? 'PDF Document' : 'Document'}
                                     </span>
                                   </div>
                                 </div>
@@ -963,7 +988,9 @@ export default function InboxPage() {
                                   href={mediaUrl} 
                                   target="_blank" 
                                   rel="noopener noreferrer"
-                                  className="p-1.5 rounded-full hover:bg-white/10 text-gray-200 cursor-pointer animate-pulse"
+                                  download={fileName}
+                                  className="p-1.5 rounded-full hover:bg-white/10 text-gray-200 cursor-pointer"
+                                  title="Open / Download Document"
                                 >
                                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -1612,14 +1639,23 @@ export default function InboxPage() {
                 </button>
               )}
 
-              {/* Centered Image */}
+              {/* Centered Media */}
               <div className="relative overflow-hidden max-h-[80vh] max-w-[85vw] flex items-center justify-center transition-transform duration-200">
-                <img
-                  src={fileSrc}
-                  alt="Viewer media"
-                  className="max-h-[75vh] max-w-[80vw] object-contain shadow-2xl rounded-md transition-transform duration-100 ease-out select-none"
-                  style={{ transform: `scale(${zoomScale})` }}
-                />
+                {fileSrc.toLowerCase().match(/\.(mp4|3gp|3gpp|mov|webm)($|\?)/i) || viewerMessage.message_type === 'video' ? (
+                  <video
+                    src={fileSrc}
+                    controls
+                    autoPlay
+                    className="max-h-[75vh] max-w-[80vw] object-contain shadow-2xl rounded-md"
+                  />
+                ) : (
+                  <img
+                    src={fileSrc}
+                    alt="Viewer media"
+                    className="max-h-[75vh] max-w-[80vw] object-contain shadow-2xl rounded-md transition-transform duration-100 ease-out select-none"
+                    style={{ transform: `scale(${zoomScale})` }}
+                  />
+                )}
               </div>
 
               {/* Right arrow */}

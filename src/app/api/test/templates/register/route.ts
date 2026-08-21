@@ -6,11 +6,31 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     console.log("🚨 RAW INCOMING PAYLOAD FROM SHEET:", JSON.stringify(body, null, 2));
     
-    let { user_id, wamid, phone, template_name, parameters, media_url } = body;
-    console.log("🔍 Media URL check:", media_url);
-    const resolvedMediaUrl = media_url || "";
-    const isImage = resolvedMediaUrl ? (/\.(jpg|jpeg|png|webp|gif)($|\?)/i.test(resolvedMediaUrl) || resolvedMediaUrl.includes("image")) : false;
-    const messageType = resolvedMediaUrl ? (isImage ? 'image' : 'document') : 'template';
+    let { user_id, wamid, phone, template_name, parameters, media_url, media_type } = body;
+    console.log("🔍 Media URL check:", media_url, "Media Type check:", media_type);
+    const resolvedMediaUrl = (media_url || "").trim();
+    const mediaUrlLower = resolvedMediaUrl.toLowerCase();
+    
+    let detectedType = (media_type || "").toString().toLowerCase().trim();
+    if (!detectedType && resolvedMediaUrl) {
+      if (
+        /\.(mp4|3gp|3gpp|mov|webm)($|\?)/i.test(mediaUrlLower) ||
+        mediaUrlLower.includes("video") ||
+        template_name?.toLowerCase().includes("video")
+      ) {
+        detectedType = 'video';
+      } else if (
+        /\.(jpg|jpeg|png|webp|gif)($|\?)/i.test(mediaUrlLower) ||
+        mediaUrlLower.includes("image") ||
+        template_name?.toLowerCase().includes("image")
+      ) {
+        detectedType = 'image';
+      } else {
+        detectedType = 'document';
+      }
+    }
+
+    const messageType = detectedType || (resolvedMediaUrl ? 'document' : 'template');
 
     // Normalize phone number to prevent duplicate contacts
     if (phone) {
@@ -171,6 +191,7 @@ export async function POST(request: NextRequest) {
     const incomingMetadata = {
       parameters: cleanTrackingVars || [],
       media_url: resolvedMediaUrl,
+      media_type: detectedType || messageType || '',
       buttons: matchedTemplate?.buttons || []
     };
 
