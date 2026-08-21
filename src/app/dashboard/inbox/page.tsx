@@ -49,6 +49,22 @@ function MsgStatus({ status }: any) {
   return <Check size={13} color="var(--color-wa-muted)" />;
 }
 
+const extractDriveId = (url: string): string | null => {
+  if (!url) return null;
+  const patterns = [
+    /\/file\/d\/([a-zA-Z0-9_\-]{10,})/,
+    /\/d\/([a-zA-Z0-9_\-]{10,})\//,
+    /[?&]id=([a-zA-Z0-9_\-]{10,})/,
+    /\/open\?id=([a-zA-Z0-9_\-]{10,})/,
+    /\/d\/([a-zA-Z0-9_\-]{10,})$/
+  ];
+  for (const p of patterns) {
+    const match = url.match(p);
+    if (match && match[1]) return match[1];
+  }
+  return null;
+};
+
 function renderWhatsAppInline(text: string, keyPrefix: string) {
   const parts: React.ReactNode[] = [];
   const pattern = /(\*[^*\n]+\*|_[^_\n]+_)/g;
@@ -939,6 +955,21 @@ export default function InboxPage() {
                             );
 
                           if (isVideo) {
+                            const driveId = extractDriveId(mediaUrl);
+                            if (driveId) {
+                              return (
+                                <div className="w-[calc(100%+24px)] mb-2 overflow-hidden rounded-t-sm -mx-3 -mt-2 bg-black select-none relative">
+                                  <iframe
+                                    src={`https://drive.google.com/file/d/${driveId}/preview`}
+                                    className="w-full h-[230px] border-0 bg-black rounded-t-sm block"
+                                    allow="autoplay; fullscreen"
+                                    allowFullScreen
+                                    title="Video Preview"
+                                  />
+                                </div>
+                              );
+                            }
+
                             return (
                               <div className="w-[calc(100%+24px)] mb-2 overflow-hidden rounded-t-sm -mx-3 -mt-2 bg-black/90 select-none">
                                 <video 
@@ -1062,15 +1093,26 @@ export default function InboxPage() {
                                   )}
                                 </div>
                               );
-                            case 'video':
+                            case 'video': {
+                              const driveId = extractDriveId(fileSrc);
                               return (
                                 <div className="flex flex-col gap-1.5">
-                                  <div className="rounded-lg overflow-hidden border border-[var(--color-wa-border)] bg-black/5 max-w-[280px]">
-                                    <video
-                                      src={fileSrc}
-                                      controls
-                                      className="w-full h-auto max-h-[220px] object-contain"
-                                    />
+                                  <div className="rounded-lg overflow-hidden border border-[var(--color-wa-border)] bg-black max-w-[280px]">
+                                    {driveId ? (
+                                      <iframe
+                                        src={`https://drive.google.com/file/d/${driveId}/preview`}
+                                        className="w-full h-[180px] border-0 bg-black block"
+                                        allow="autoplay; fullscreen"
+                                        allowFullScreen
+                                        title="Video Preview"
+                                      />
+                                    ) : (
+                                      <video
+                                        src={fileSrc}
+                                        controls
+                                        className="w-full h-auto max-h-[220px] object-contain"
+                                      />
+                                    )}
                                   </div>
                                   <div className="flex items-center gap-4 px-1 py-1 text-xs font-semibold select-none">
                                     {!downloadedMedia[m.id] ? (
@@ -1092,6 +1134,7 @@ export default function InboxPage() {
                                   )}
                                 </div>
                               );
+                            }
                             case 'document': {
                               const fileName = m.file_name || mediaObj?.fileName || 'Document';
                               
@@ -1641,21 +1684,42 @@ export default function InboxPage() {
 
               {/* Centered Media */}
               <div className="relative overflow-hidden max-h-[80vh] max-w-[85vw] flex items-center justify-center transition-transform duration-200">
-                {fileSrc.toLowerCase().match(/\.(mp4|3gp|3gpp|mov|webm)($|\?)/i) || viewerMessage.message_type === 'video' ? (
-                  <video
-                    src={fileSrc}
-                    controls
-                    autoPlay
-                    className="max-h-[75vh] max-w-[80vw] object-contain shadow-2xl rounded-md"
-                  />
-                ) : (
-                  <img
-                    src={fileSrc}
-                    alt="Viewer media"
-                    className="max-h-[75vh] max-w-[80vw] object-contain shadow-2xl rounded-md transition-transform duration-100 ease-out select-none"
-                    style={{ transform: `scale(${zoomScale})` }}
-                  />
-                )}
+                {(() => {
+                  const isVid = fileSrc.toLowerCase().match(/\.(mp4|3gp|3gpp|mov|webm)($|\?)/i) || viewerMessage.message_type === 'video';
+                  const driveId = isVid ? extractDriveId(fileSrc) : null;
+
+                  if (driveId) {
+                    return (
+                      <iframe
+                        src={`https://drive.google.com/file/d/${driveId}/preview`}
+                        className="w-[85vw] h-[75vh] max-w-[900px] rounded-md border-0 bg-black shadow-2xl"
+                        allow="autoplay; fullscreen"
+                        allowFullScreen
+                        title="Video Viewer"
+                      />
+                    );
+                  }
+
+                  if (isVid) {
+                    return (
+                      <video
+                        src={fileSrc}
+                        controls
+                        autoPlay
+                        className="max-h-[75vh] max-w-[80vw] object-contain shadow-2xl rounded-md"
+                      />
+                    );
+                  }
+
+                  return (
+                    <img
+                      src={fileSrc}
+                      alt="Viewer media"
+                      className="max-h-[75vh] max-w-[80vw] object-contain shadow-2xl rounded-md transition-transform duration-100 ease-out select-none"
+                      style={{ transform: `scale(${zoomScale})` }}
+                    />
+                  );
+                })()}
               </div>
 
               {/* Right arrow */}
