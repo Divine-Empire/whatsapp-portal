@@ -114,8 +114,10 @@ async function resolveTemplatesForMessages(rawMessages: any[]): Promise<any[]> {
 }
 
 export interface Contact {
+  id?: string;
   name: string;
   phone_number: string;
+  profile_name?: string;
 }
 
 export interface Conversation {
@@ -414,6 +416,51 @@ export const useDashStore = create<DashStore>((set, get) => ({
       set({ loadingMessages: true, hasMoreMessages: true });
     }
     try {
+      // Ensure conversation metadata & contact exists in state
+      const existingConv = get().conversations.find(c => c.id === conversationId);
+      if (!existingConv || !existingConv.contact?.phone_number) {
+        supabase
+          .from('whatsapp_portal_conversations')
+          .select(`
+            id,
+            last_message,
+            last_message_at,
+            unread_count,
+            whatsapp_portal_contacts (
+              id,
+              name,
+              phone_number,
+              profile_name
+            )
+          `)
+          .eq('id', conversationId)
+          .maybeSingle()
+          .then(({ data: convData }: any) => {
+            if (convData) {
+              const contact = convData.whatsapp_portal_contacts;
+              const contactName = contact?.name || contact?.profile_name || contact?.phone_number || 'Unknown';
+              const resolvedConv: Conversation = {
+                id: convData.id,
+                contact: {
+                  id: contact?.id,
+                  name: contactName,
+                  phone_number: contact?.phone_number || '',
+                },
+                last_message: convData.last_message || '',
+                last_message_at: convData.last_message_at,
+                unread_count: 0,
+              };
+
+              set(state => ({
+                conversations: state.conversations.some(c => c.id === resolvedConv.id)
+                  ? state.conversations.map(c => c.id === resolvedConv.id ? { ...c, contact: resolvedConv.contact } : c)
+                  : [resolvedConv, ...state.conversations]
+              }));
+            }
+          })
+          .catch((err: any) => console.error('Failed to resolve conversation contact info:', err));
+      }
+
       if (isInitial) {
         // 1. Initial Load: Fetch newest 30 messages in descending order, then reverse them
         const { data, error } = await supabase
@@ -425,8 +472,8 @@ export const useDashStore = create<DashStore>((set, get) => ({
 
         if (error) throw error;
 
-      // Resolve template content dynamically
-      const resolvedData = await resolveTemplatesForMessages(data || []);
+        // Resolve template content dynamically
+        const resolvedData = await resolveTemplatesForMessages(data || []);
       const visibleData = resolvedData.filter((log: any) => !log.metadata?.hidden_for_user);
       
       const mapped: DashMessage[] = visibleData.map((log: any) => ({

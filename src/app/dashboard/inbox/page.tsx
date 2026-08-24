@@ -882,30 +882,38 @@ export default function InboxPage() {
           }} />
 
           {/* Chat header */}
-          <div className="h-14 flex items-center justify-between px-4 bg-[var(--color-wa-surface)] border-b border-[var(--color-wa-border)] flex-shrink-0 z-10">
-            <div className="flex items-center gap-3">
-              <button
-                className="md:hidden p-1 -ml-1 text-[var(--color-wa-muted)] hover:text-[var(--color-wa-text)]"
-                onClick={() => setActiveConversation(null)}
-              >
-                <ChevronLeft size={20} />
-              </button>
-              <Avatar name={selectedContact?.name || selectedContact?.phone_number} size={8} />
-              <div>
-                <p className="text-[13px] font-semibold text-[var(--color-wa-text)]">{selectedContact?.name || selectedContact?.phone_number}</p>
-                <p className="text-[11px] text-[var(--color-wa-muted)]">{selectedContact?.phone_number}</p>
+          {(() => {
+            const headerName = selectedContact?.name || selectedContact?.profile_name || selectedContact?.phone_number || 'Chat';
+            const headerPhone = selectedContact?.phone_number || '';
+            return (
+              <div className="h-14 flex items-center justify-between px-4 bg-[var(--color-wa-surface)] border-b border-[var(--color-wa-border)] flex-shrink-0 z-10">
+                <div className="flex items-center gap-3">
+                  <button
+                    className="md:hidden p-1 -ml-1 text-[var(--color-wa-muted)] hover:text-[var(--color-wa-text)]"
+                    onClick={() => setActiveConversation(null)}
+                  >
+                    <ChevronLeft size={20} />
+                  </button>
+                  <Avatar name={headerName} size={8} />
+                  <div>
+                    <p className="text-[13px] font-semibold text-[var(--color-wa-text)]">{headerName}</p>
+                    {headerPhone && headerPhone !== headerName ? (
+                      <p className="text-[11px] text-[var(--color-wa-muted)]">{headerPhone}</p>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 relative">
+                  <button className="p-2 text-[var(--color-wa-muted)] hover:text-[var(--color-wa-text)]"><Phone size={16} /></button>
+                  <button
+                    className={`p-2 transition-colors rounded-full ${showMenu ? 'bg-[var(--color-wa-bg)] text-[var(--color-wa-text)]' : 'text-[var(--color-wa-muted)] hover:text-[var(--color-wa-text)]'}`}
+                    onClick={() => setShowMenu(!showMenu)}
+                  >
+                    <MoreVertical size={16} />
+                  </button>
+                </div>
               </div>
-            </div>
-            <div className="flex items-center gap-2 relative">
-              <button className="p-2 text-[var(--color-wa-muted)] hover:text-[var(--color-wa-text)]"><Phone size={16} /></button>
-              <button
-                className={`p-2 transition-colors rounded-full ${showMenu ? 'bg-[var(--color-wa-bg)] text-[var(--color-wa-text)]' : 'text-[var(--color-wa-muted)] hover:text-[var(--color-wa-text)]'}`}
-                onClick={() => setShowMenu(!showMenu)}
-              >
-                <MoreVertical size={16} />
-              </button>
-            </div>
-          </div>
+            );
+          })()}
 
           {/* Messages */}
           <div 
