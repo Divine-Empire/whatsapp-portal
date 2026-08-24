@@ -219,11 +219,19 @@ export default function InboxPage() {
     activeConversationId,
     setActiveConversation,
     fetchConversations,
+    fetchMoreConversations,
+    hasMoreConversations,
+    loadingConversations,
+    loadingMoreConversations,
     messages,
     sendMessage,
     sendReaction,
     searchQuery,
     setSearchQuery,
+    isSearching,
+    searchResults,
+    searchDatabase,
+    getOrCreateConversation,
     hasMoreMessages,
     loadingOlderMessages,
     fetchOlderMessages,
@@ -407,16 +415,25 @@ export default function InboxPage() {
   const imageInputRef  = useRef<HTMLInputElement>(null);
   const docInputRef    = useRef<HTMLInputElement>(null);
   const attachRef      = useRef<HTMLDivElement>(null);
+  const conversationListRef = useRef<HTMLDivElement>(null);
 
   /* ─ data fetch & realtime ──────────────────────────────────── */
 
   useEffect(() => {
-    fetchConversations();
+    fetchConversations(true);
   }, [fetchConversations]);
+
+  // Live database search with debounce
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      searchDatabase(searchQuery);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [searchQuery, searchDatabase]);
 
   useEffect(() => {
     const interval = setInterval(() => {
-      useDashStore.getState().fetchConversations();
+      useDashStore.getState().fetchConversations(false);
       const activeId = useDashStore.getState().activeConversationId;
       if (activeId) {
         useDashStore.getState().fetchMessages(activeId, false);
@@ -426,19 +443,47 @@ export default function InboxPage() {
     return () => clearInterval(interval);
   }, []);
 
+  const handleConversationScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    if (searchQuery.trim()) return;
+    const container = e.currentTarget;
+    if (
+      container.scrollHeight - container.scrollTop - container.clientHeight < 150 &&
+      !loadingMoreConversations &&
+      hasMoreConversations
+    ) {
+      fetchMoreConversations();
+    }
+  };
+
+  const handleSelectConversation = async (item: any) => {
+    if (item.has_conversation === false || (typeof item.id === 'string' && item.id.startsWith('contact-'))) {
+      const newConvId = await getOrCreateConversation(item);
+      if (newConvId) {
+        setSearchQuery('');
+      }
+    } else {
+      setActiveConversation(item.id);
+      if (searchQuery) {
+        setSearchQuery('');
+      }
+    }
+  };
+
   /* ─ derived ────────────────────────────────────────────────── */
 
-  const filtered = conversations.filter(c => {
-    const name = c.contact?.name || c.contact?.phone_number || '';
-    const matchSearch =
-      name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (c.contact?.phone_number || '').includes(searchQuery);
-    if (!matchSearch) return false;
+  const isSearchMode = searchQuery.trim().length > 0;
 
-    if (activeFilter === 'unseen') return c.unread_count > 0;
-    if (activeFilter === 'seen')   return c.unread_count === 0;
-    return true;
-  });
+  const displayItems = isSearchMode
+    ? searchResults.filter((c: any) => {
+        if (activeFilter === 'unseen') return (c.unread_count || 0) > 0;
+        if (activeFilter === 'seen')   return (c.unread_count || 0) === 0;
+        return true;
+      })
+    : conversations.filter((c: any) => {
+        if (activeFilter === 'unseen') return (c.unread_count || 0) > 0;
+        if (activeFilter === 'seen')   return (c.unread_count || 0) === 0;
+        return true;
+      });
 
   const selectedConv    = conversations.find(c => c.id === activeConversationId);
   const selectedContact = selectedConv?.contact;
@@ -719,45 +764,111 @@ export default function InboxPage() {
 
         {/* Search */}
         <div className="p-3 border-b border-[var(--color-wa-border)]">
-          <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-wa-muted)]" />
-            <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search chats…" style={{ paddingLeft: '34px', fontSize: 13 }} />
+          <div className="relative flex items-center">
+            {isSearching ? (
+              <div className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center justify-center">
+                <div className="w-3.5 h-3.5 border-2 border-[var(--color-wa-green)] border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : (
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-wa-muted)]" />
+            )}
+            <input
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search chats or contacts…"
+              className="w-full bg-[var(--color-wa-bg)] rounded-lg py-1.5 pr-8 pl-9 text-[13px] text-[var(--color-wa-text)] placeholder:text-[var(--color-wa-muted)] border border-transparent focus:border-[var(--color-wa-green)] focus:outline-none transition-all"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded-full hover:bg-[var(--color-wa-border)]/60 text-[var(--color-wa-muted)] hover:text-[var(--color-wa-text)] transition"
+              >
+                <X size={13} />
+              </button>
+            )}
           </div>
         </div>
 
         {/* List */}
-        <div className="flex-1 overflow-y-auto">
-          {filtered.map((c, idx) => {
-            const name = c.contact?.name || c.contact?.phone_number || 'Unknown';
-            return (
-              <div
-                key={c.id ? `${c.id}-${idx}` : idx}
-                onClick={() => setActiveConversation(c.id)}
-                className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-[var(--color-wa-bg)] transition border-b border-[var(--color-wa-border)]/50
-                  ${activeConversationId === c.id ? 'bg-[var(--color-wa-bg)]' : ''}`}
-              >
-                <Avatar name={name} />
-                <div className="flex-1 min-w-0">
-                  <div className="flex justify-between items-center">
-                    <p className="text-[13px] font-medium text-[var(--color-wa-text)] truncate">{name}</p>
-                    <span className="text-[10px] text-[var(--color-wa-muted)] flex-shrink-0 ml-2">
-                      {c.last_message_at ? new Date(c.last_message_at).toLocaleDateString() : ''}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <div className="flex items-center gap-1 min-w-0">
-                      <p className="text-[11px] text-[var(--color-wa-muted)] truncate">{c.last_message}</p>
+        <div
+          ref={conversationListRef}
+          onScroll={handleConversationScroll}
+          className="flex-1 overflow-y-auto"
+        >
+          {isSearchMode && isSearching && searchResults.length === 0 ? (
+            <div className="p-8 text-center text-[var(--color-wa-muted)] text-[12px] flex flex-col items-center gap-2">
+              <div className="w-5 h-5 border-2 border-[var(--color-wa-green)] border-t-transparent rounded-full animate-spin" />
+              <span>Searching database for contacts and chats...</span>
+            </div>
+          ) : isSearchMode && displayItems.length === 0 ? (
+            <div className="p-8 text-center text-[var(--color-wa-muted)] text-[12px]">
+              No chats or contacts found matching &ldquo;{searchQuery}&rdquo;
+            </div>
+          ) : !isSearchMode && displayItems.length === 0 && loadingConversations ? (
+            <div className="p-8 text-center text-[var(--color-wa-muted)] text-[12px] flex flex-col items-center gap-2">
+              <div className="w-5 h-5 border-2 border-[var(--color-wa-green)] border-t-transparent rounded-full animate-spin" />
+              <span>Loading chats...</span>
+            </div>
+          ) : !isSearchMode && displayItems.length === 0 ? (
+            <div className="p-8 text-center text-[var(--color-wa-muted)] text-[12px]">
+              No conversations found
+            </div>
+          ) : (
+            <>
+              {displayItems.map((c: any, idx: number) => {
+                const contactObj = c.contact || {};
+                const name = contactObj.name || contactObj.profile_name || contactObj.phone_number || 'Unknown';
+                const phone = contactObj.phone_number;
+                const isContactOnly = c.has_conversation === false || (typeof c.id === 'string' && c.id.startsWith('contact-'));
+                const isSelected = activeConversationId === c.id;
+
+                return (
+                  <div
+                    key={c.id ? `${c.id}-${idx}` : idx}
+                    onClick={() => handleSelectConversation(c)}
+                    className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-[var(--color-wa-bg)] transition border-b border-[var(--color-wa-border)]/50
+                      ${isSelected ? 'bg-[var(--color-wa-bg)]' : ''}`}
+                  >
+                    <Avatar name={name} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex justify-between items-center">
+                        <p className="text-[13px] font-medium text-[var(--color-wa-text)] truncate">{name}</p>
+                        <span className="text-[10px] text-[var(--color-wa-muted)] flex-shrink-0 ml-2">
+                          {c.last_message_at ? new Date(c.last_message_at).toLocaleDateString() : ''}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center mt-0.5">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          {isContactOnly ? (
+                            <span className="text-[10px] font-medium px-1.5 py-0.5 bg-[var(--color-wa-green)]/10 text-[var(--color-wa-green)] rounded">
+                              {phone ? phone : 'Contact'}
+                            </span>
+                          ) : (
+                            <p className="text-[11px] text-[var(--color-wa-muted)] truncate">
+                              {c.last_message || (phone ? phone : '')}
+                            </p>
+                          )}
+                        </div>
+                        {c.unread_count > 0 && (
+                          <span className="w-4 h-4 rounded-full bg-[#25D366] text-white text-[9px] font-bold flex items-center justify-center flex-shrink-0 ml-1 shadow-sm">
+                            {c.unread_count}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    {c.unread_count > 0 && (
-                      <span className="w-4 h-4 rounded-full bg-[#25D366] text-white text-[9px] font-bold flex items-center justify-center flex-shrink-0 ml-1 shadow-sm">
-                        {c.unread_count}
-                      </span>
-                    )}
                   </div>
+                );
+              })}
+
+              {!isSearchMode && loadingMoreConversations && (
+                <div className="py-3 flex items-center justify-center gap-2 text-[var(--color-wa-muted)] text-[11px]">
+                  <div className="w-3.5 h-3.5 border-2 border-[var(--color-wa-green)] border-t-transparent rounded-full animate-spin" />
+                  <span>Loading older chats...</span>
                 </div>
-              </div>
-            );
-          })}
+              )}
+            </>
+          )}
         </div>
       </div>
 

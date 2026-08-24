@@ -173,6 +173,9 @@ export interface DashStore {
   activeConversationId: string | null;
   setActiveConversation: (id: string | null) => void;
   loadingConversations: boolean;
+  loadingMoreConversations: boolean;
+  hasMoreConversations: boolean;
+  conversationsCursor: string | null;
   loadingMessages: boolean;
   loadingOlderMessages: boolean;
   hasMoreMessages: boolean;
@@ -181,6 +184,10 @@ export interface DashStore {
   messages: DashMessage[];
   searchQuery: string;
   setSearchQuery: (query: string) => void;
+  isSearching: boolean;
+  searchResults: any[];
+  searchDatabase: (query: string) => Promise<void>;
+  getOrCreateConversation: (contactData: any) => Promise<string | null>;
 
   replyingToMessage: DashMessage | null;
   setReplyingToMessage: (msg: DashMessage | null) => void;
@@ -190,7 +197,8 @@ export interface DashStore {
   templates: Template[];
   fetchTemplates: () => Promise<void>;
 
-  fetchConversations: () => Promise<void>;
+  fetchConversations: (reset?: boolean) => Promise<void>;
+  fetchMoreConversations: () => Promise<void>;
   fetchMessages: (conversationId: string, isInitial?: boolean) => Promise<void>;
   fetchOlderMessages: (conversationId: string) => Promise<void>;
   sendMessage: (
@@ -228,6 +236,9 @@ export const useDashStore = create<DashStore>((set, get) => ({
     }
   },
   loadingConversations: false,
+  loadingMoreConversations: false,
+  hasMoreConversations: true,
+  conversationsCursor: null,
   loadingMessages: false,
   loadingOlderMessages: false,
   hasMoreMessages: true,
@@ -236,6 +247,60 @@ export const useDashStore = create<DashStore>((set, get) => ({
   messages: [],
   searchQuery: '',
   setSearchQuery: (query) => set({ searchQuery: query }),
+  isSearching: false,
+  searchResults: [],
+
+  searchDatabase: async (query: string) => {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      set({ searchResults: [], isSearching: false });
+      return;
+    }
+
+    set({ isSearching: true });
+    try {
+      const res = await fetch(`/api/conversations/search?q=${encodeURIComponent(trimmed)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Search failed');
+
+      set({ searchResults: data.results || [] });
+    } catch (err: any) {
+      console.error('Search error:', err);
+      set({ searchResults: [] });
+    } finally {
+      set({ isSearching: false });
+    }
+  },
+
+  getOrCreateConversation: async (contactData: any) => {
+    try {
+      const res = await fetch('/api/conversations/get-or-create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contactId: contactData.contact_id || contactData.contact?.id || contactData.id,
+          phoneNumber: contactData.phone_number || contactData.contact?.phone_number,
+          name: contactData.name || contactData.contact?.name,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.conversation) {
+        throw new Error(data.error || 'Failed to get or create conversation');
+      }
+
+      const newConv: Conversation = data.conversation;
+      const currentConvs = get().conversations;
+      if (!currentConvs.some(c => c.id === newConv.id)) {
+        set({ conversations: [newConv, ...currentConvs] });
+      }
+
+      set({ activeConversationId: newConv.id });
+      return newConv.id;
+    } catch (err: any) {
+      console.error('Get or create conversation failed:', err);
+      return null;
+    }
+  },
 
   templates: [],
   fetchTemplates: async () => {
@@ -264,58 +329,83 @@ export const useDashStore = create<DashStore>((set, get) => ({
     }
   },
 
-  fetchConversations: async () => {
-    set({ loadingConversations: true, error: null });
+  fetchConversations: async (reset = true) => {
+    if (reset) {
+      set({ loadingConversations: true, error: null });
+    }
     try {
-      const { data, error } = await supabase
-        .from('whatsapp_portal_conversations')
-        .select(`
-          id,
-          last_message,
-          last_message_at,
-          unread_count,
-          whatsapp_portal_contacts (
-            name,
-            phone_number,
-            profile_name
-          )
-        `)
-        .order('last_message_at', { ascending: false });
+      const res = await fetch('/api/conversations/list?limit=30');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to fetch conversations');
 
-      if (error) throw error;
-      
+      const fetchedConvs: Conversation[] = data.conversations || [];
       const activeId = get().activeConversationId;
-      const convs = (data || []).map((row: any) => {
-        const isCurrentActive = row.id === activeId;
+
+      if (reset) {
+        set({
+          conversations: fetchedConvs,
+          hasMoreConversations: !!data.hasMore,
+          conversationsCursor: data.nextCursor || null,
+        });
+      } else {
+        // Background sync: update / merge newest conversations without wiping out older scrolled conversations
+        const currentConvs = get().conversations;
+        const convMap = new Map<string, Conversation>();
+        currentConvs.forEach(c => convMap.set(c.id, c));
         
-        if (isCurrentActive && row.unread_count > 0) {
-          supabase
-            .from('whatsapp_portal_conversations')
-            .update({ unread_count: 0 })
-            .eq('id', row.id)
-            .then(({ error }: any) => {
-              if (error) console.error('Failed to update unread_count on active conversation poll:', error);
-            });
-        }
+        fetchedConvs.forEach(c => {
+          const isCurrentActive = c.id === activeId;
+          convMap.set(c.id, {
+            ...convMap.get(c.id),
+            ...c,
+            unread_count: isCurrentActive ? 0 : c.unread_count,
+          });
+        });
 
-        return {
-          id: row.id,
-          contact: {
-            name: row.whatsapp_portal_contacts?.name || row.whatsapp_portal_contacts?.profile_name || row.whatsapp_portal_contacts?.phone_number || 'Unknown',
-            phone_number: row.whatsapp_portal_contacts?.phone_number || ''
-          },
-          last_message: row.last_message || '',
-          last_message_at: row.last_message_at,
-          unread_count: isCurrentActive ? 0 : (row.unread_count || 0)
-        };
-      });
+        const merged = Array.from(convMap.values()).sort((a, b) => {
+          const timeA = a.last_message_at ? new Date(a.last_message_at).getTime() : 0;
+          const timeB = b.last_message_at ? new Date(b.last_message_at).getTime() : 0;
+          return timeB - timeA;
+        });
 
-      set({ conversations: convs });
+        set({ conversations: merged });
+      }
     } catch (err: any) {
       console.error('Failed to fetch conversations:', err?.message || err);
-      set({ error: err.message });
+      if (reset) set({ error: err.message });
     } finally {
-      set({ loadingConversations: false });
+      if (reset) set({ loadingConversations: false });
+    }
+  },
+
+  fetchMoreConversations: async () => {
+    const { hasMoreConversations, loadingMoreConversations, conversationsCursor, conversations } = get();
+    if (!hasMoreConversations || loadingMoreConversations || !conversationsCursor) return;
+
+    set({ loadingMoreConversations: true });
+    try {
+      const res = await fetch(`/api/conversations/list?limit=30&cursor=${encodeURIComponent(conversationsCursor)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to fetch more conversations');
+
+      const moreConvs: Conversation[] = data.conversations || [];
+      if (moreConvs.length === 0) {
+        set({ hasMoreConversations: false });
+        return;
+      }
+
+      const existingIds = new Set(conversations.map(c => c.id));
+      const newItems = moreConvs.filter(c => !existingIds.has(c.id));
+
+      set({
+        conversations: [...conversations, ...newItems],
+        hasMoreConversations: !!data.hasMore,
+        conversationsCursor: data.nextCursor || null,
+      });
+    } catch (err: any) {
+      console.error('Failed to fetch more conversations:', err);
+    } finally {
+      set({ loadingMoreConversations: false });
     }
   },
 
