@@ -159,6 +159,19 @@ usable as-is.
 Read-only. Sending stays on `/api/send-message`, which the AI agent uses so
 this portal remains the single writer of `whatsapp_portal_messages`.
 
+**Known bug in `/api/conversations/list` — worth fixing here one day.** It
+derives `hasMore` by over-fetching one row (`.limit(limit + 1)`), but Supabase
+clamps any response to 1000 rows. So a request for exactly `limit=1000` loses
+the probe row to the clamp and reports `hasMore: false` even though ~11,700
+conversations exist. This portal's own inbox would stall at 1000 rows on
+infinite scroll for the same reason. `sales-agent` works around it by paging
+at 500 and stitching, and by de-duplicating rows by id (conversations sharing
+a `last_message_at` can straddle a cursor boundary and repeat) — see the
+pagination note in that repo's `CLAUDE.md`. If you fix it properly here, a
+count endpoint would also let the dashboard show an honest "X of Y"; right now
+it deliberately shows only "N shown · more available" rather than putting this
+project's database credential into `sales-agent`.
+
 ## Relationship to the sibling repos in this workspace
 
 - **`sales-agent`** (`../sales-agent`): a separate AI sales agent backend,
