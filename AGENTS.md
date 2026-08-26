@@ -143,6 +143,22 @@ Properties of the forward, all deliberate:
   `whatsapp_portal_messages`, which is the entire reason the agent sends
   through it rather than calling Meta itself.
 
+## CRM dashboard read path (added 2026-08-26)
+
+`GET /api/conversations/[id]/messages` returns one thread oldest-first plus
+the contact, for `sales-agent` to proxy into the CRM dashboard's WhatsApp tab.
+It exists because this portal's own inbox reads `whatsapp_portal_messages`
+straight from Supabase using the signed-in operator's session, and
+`/api/logs` is auth-gated — so neither is reachable server-to-server.
+
+The dashboard never touches this project's database or holds its credentials:
+it calls `sales-agent`, which calls these endpoints. `/api/conversations/list`
+and `/api/conversations/search` serve the same read path and were already
+usable as-is.
+
+Read-only. Sending stays on `/api/send-message`, which the AI agent uses so
+this portal remains the single writer of `whatsapp_portal_messages`.
+
 ## Relationship to the sibling repos in this workspace
 
 - **`sales-agent`** (`../sales-agent`): a separate AI sales agent backend,
