@@ -174,35 +174,36 @@ project's database credential into `sales-agent`.
 
 ## Relationship to the sibling repos in this workspace
 
-- **`sales-agent`** (`../sales-agent`): a separate AI sales agent backend,
-  currently Telegram-only. Its own WhatsApp adapter is deliberately
-  unimplemented, gated on this exact collision risk — see that repo's
-  `CLAUDE.md` WhatsApp section. `sales-agent/app_script/app.gs` is a
-  reference-only copy of the same Google Apps Script that talks to this
-  portal's `/api/sync-sheet`.
-- **`sales-agent-dashboard`** (`../sales-agent-dashboard`): the CRM
-  dashboard for the sales-agent backend. Its WhatsApp tab is currently a
-  deterministic, fixture-only preview with no connection to this portal, by
-  explicit design (`.agents/improvement.md` §1, §8) — the WhatsApp
-  number/webhook this portal owns cannot have a second consumer registered
-  against it without a coordinated decision.
-- **The collision risk, precisely**: this portal owns the live Meta webhook
-  registration for Divine Empire's real WhatsApp Business number today. Meta
-  allows exactly one webhook URL per number. Registering `sales-agent`'s
-  webhook (or any other consumer) against that same number would silently
-  break this portal's webhook (or vice versa) — not a hypothetical, a
-  guaranteed outage for whichever side loses. Any change that touches Meta
-  webhook registration for this number needs an explicit, coordinated
-  decision from the user first; that decision has not been made as of
-  2026-08-26.
-- **As of 2026-08-26, the user's stated plan is to surface this portal's
-  data inside `sales-agent-dashboard`'s WhatsApp tab.** The integration
-  shape is NOT yet decided — candidates include a read-only view into this
-  portal's Supabase from the dashboard, a new API surface exposed by this
-  portal itself, or something else. Do not start building any specific
-  integration from assumption; if you're an agent picking this up, check
-  with the user for the actual decision before writing integration code in
-  any of the three repos.
+WhatsApp went live end to end on 2026-08-26. All three repos are now involved:
+
+- **`sales-agent`** (`../sales-agent`): the AI backend, live on **both**
+  Telegram and WhatsApp. It answers inbound WhatsApp messages forwarded from
+  this portal's webhook, and sends its replies back through this portal's
+  `/api/send-message` — never Meta directly, so this project stays the single
+  writer of `whatsapp_portal_messages`. Its `WhatsAppAdapter` class remains an
+  unimplemented stub documenting the direct-to-Meta path; the live one is
+  `WhatsAppPortalAdapter`. See that repo's `CLAUDE.md` WhatsApp section.
+- **`sales-agent-dashboard`** (`../sales-agent-dashboard`): the CRM dashboard.
+  Its WhatsApp tab is **live and read-only** against this portal's data,
+  reached through `sales-agent`'s `/api/whatsapp/*` proxy. It holds no
+  credentials for this project and never queries this Supabase directly —
+  that indirection is deliberate, so keep it. (Earlier notes describing that
+  tab as a fixture-only preview are superseded.)
+- **`sales-agent/app_scripts/`**: reference-only copies of the Google Apps
+  Script that bulk-sends from a Sheet and posts to this portal's
+  `/api/sync-sheet`. Its `doPost` webhook handler is **legacy/dead** — Meta
+  does not call it. Verified against this database: current
+  `direction=inbound` rows carry `source='internal'` and `message_type`
+  values only this portal's own webhook switch produces.
+- **The collision risk, still binding**: this portal owns the live Meta
+  webhook registration for Divine Empire's number
+  (`+91 70242 22373`, phone_number_id `945246702014228`). Meta allows exactly
+  one webhook URL per number, so registering any second consumer against it
+  would silently break this portal's webhook and take down both the marketing
+  pipeline's reply tracking and the AI. That is why the AI is wired via a
+  forward from this handler rather than its own webhook. Any change touching
+  Meta webhook registration for this number needs an explicit decision from
+  the user first.
 
 ## Conventions
 
