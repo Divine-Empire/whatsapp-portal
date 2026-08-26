@@ -3,6 +3,77 @@ import { createAdminClient } from "@/lib/supabase/server";
 import { fetchWhatsAppTemplates, resolveTemplateInfo } from "@/lib/whatsapp";
 import { normalizePhoneNumber } from "@/lib/utils";
 
+/**
+ * Forward an inbound customer message to the AI sales agent (the separate
+ * `sales-agent` service on Render), which decides a reply and sends it by
+ * calling this portal's own POST /api/send-message. That keeps this portal the
+ * single writer of whatsapp_portal_messages, so the inbox stays complete and
+ * Meta's delivery/read webhooks still match on wa_message_id.
+ *
+ * This is where the hand-off has to live: Meta's webhook for this number
+ * points here, so this handler is the only place that sees a customer's reply
+ * arrive. (The Google Apps Script's doPost is legacy/dead for this purpose —
+ * it no longer receives Meta traffic.)
+ *
+ * Fire-and-forget and fully swallowed: the customer's message is already
+ * stored by the time this runs, and Meta retries a webhook that does not ack
+ * quickly — so a slow or broken agent must never delay or fail this handler.
+ *
+ * Config (Vercel env, both optional):
+ *   SALES_AGENT_URL     e.g. https://sales-agent-956w.onrender.com
+ *   SALES_AGENT_SECRET  must equal WHATSAPP_INBOUND_SECRET on the agent
+ * Unset SALES_AGENT_URL disables the forward entirely — the portal is
+ * unaffected either way.
+ */
+async function forwardToSalesAgent(msg: {
+  from: string;
+  text: string;
+  name?: string | null;
+  messageId?: string | null;
+  type?: string | null;
+}): Promise<void> {
+  const base = process.env.SALES_AGENT_URL;
+  if (!base) return; // not configured = feature off
+
+  // Free-text only. Button/list taps are marketing-funnel clicks the existing
+  // Sheet/campaign flow owns; letting the agent answer those would have it
+  // talking over the campaign it is meant to support.
+  if (msg.type !== "text") return;
+  if (!msg.text || !msg.text.trim()) return;
+
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const secret = process.env.SALES_AGENT_SECRET;
+  if (secret) headers["X-Inbound-Secret"] = secret;
+
+  try {
+    // `from` is already normalizePhoneNumber()'d by the caller — the
+    // 91-prefixed form this portal stores contacts under, which is also what
+    // the agent keys its conversation_id on.
+    const res = await fetch(`${base.replace(/\/+$/, "")}/webhooks/whatsapp-inbound`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        from: msg.from,
+        text: msg.text,
+        name: msg.name || "",
+        message_id: msg.messageId || "",
+        type: msg.type,
+      }),
+      // Do not let a hung agent hold Meta's webhook open.
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) {
+      console.warn(`⚠️ Sales agent forward returned ${res.status}`);
+    } else {
+      console.log(`🤖 Forwarded to sales agent (wamid: ${msg.messageId})`);
+    }
+  } catch (err) {
+    // Never surface this: the message is stored and an operator can still see
+    // it in the inbox even if the agent never answers.
+    console.warn("⚠️ Sales agent forward failed:", (err as Error)?.message);
+  }
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ userId: string }> },
@@ -363,6 +434,7 @@ export async function POST(
 
         // Insert message with deduplication check
         let msgInsertError = null;
+        let isNewMessage = true;
         if (waMessageId) {
           const { data: existingMsg } = await supabase
             .from("whatsapp_portal_messages")
@@ -372,6 +444,7 @@ export async function POST(
 
           if (existingMsg) {
             console.log(`⚠️ Message with wamid ${waMessageId} already exists. Skipping insertion.`);
+            isNewMessage = false;
           } else {
             const { error } = await supabase
               .from("whatsapp_portal_messages")
@@ -391,6 +464,21 @@ export async function POST(
           console.log(
             `✅ Success: ${messageType} message processed for user ${userId} (wamid: ${waMessageId})`,
           );
+        }
+
+        // Hand the customer's message to the AI sales agent, which replies via
+        // this portal's own /api/send-message. Deliberately last, and only for
+        // a genuinely new message that stored cleanly: a Meta webhook retry
+        // (isNewMessage false) must not produce a second AI reply on a
+        // billable channel.
+        if (isNewMessage && !msgInsertError) {
+          await forwardToSalesAgent({
+            from: phoneNumber,
+            text: messageContent,
+            name: profileName,
+            messageId: waMessageId,
+            type: messageType,
+          });
         }
       }
     }
