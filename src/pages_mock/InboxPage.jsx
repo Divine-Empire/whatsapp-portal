@@ -5,7 +5,8 @@ import { StatusBadge } from '../components/ui/Cards';
 import { 
   Search, Send, Image, FileText, Smile, Phone, MoreVertical, 
   CheckCheck, Check, Archive, VolumeX, ShieldAlert, BadgeInfo, 
-  UserX, UserCheck, ChevronLeft, SmilePlus, Download, Play, Paperclip 
+  UserX, UserCheck, ChevronLeft, SmilePlus, Download, Play, Paperclip,
+  AlertCircle
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 
@@ -25,11 +26,21 @@ function Avatar({ name, color, size = 9 }) {
   );
 }
 
-function MsgStatus({ status }) {
-  if (status === 'sending') return <div className="w-3 h-3 border border-[var(--color-wa-muted)] border-t-transparent rounded-full animate-spin-slow" />;
-  if (status === 'read')      return <CheckCheck size={13} color="#25D366" />;
-  if (status === 'delivered') return <CheckCheck size={13} color="var(--color-wa-muted)" />;
-  return <Check size={13} color="var(--color-wa-muted)" />;
+function MsgStatus({ status, message }) {
+  if (status === 'sending') return <div title="Sending..." className="w-3 h-3 border border-[var(--color-wa-muted)] border-t-transparent rounded-full animate-spin-slow" />;
+  if (status === 'failed') {
+    const errorMsg = message?.metadata?.error_message || message?.metadata?.error || 'Message failed to send or deliver';
+    const errorCode = message?.metadata?.error_code;
+    const fullTooltip = `Failed: ${errorMsg}${errorCode ? ` (${errorCode})` : ''}`;
+    return (
+      <span title={fullTooltip} className="inline-flex items-center gap-0.5 text-red-500 cursor-help" aria-label={fullTooltip}>
+        <AlertCircle size={13} className="text-[#ea0038] shrink-0" />
+      </span>
+    );
+  }
+  if (status === 'read')      return <CheckCheck size={13} color="#25D366" title="Read" />;
+  if (status === 'delivered') return <CheckCheck size={13} color="var(--color-wa-muted)" title="Delivered" />;
+  return <Check size={13} color="var(--color-wa-muted)" title="Sent" />;
 }
 
 const EMOJI_REGEX = /^(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])+$/;
@@ -327,7 +338,7 @@ export default function InboxPage() {
                         <span className={`text-[10px] whitespace-nowrap ${(m.direction === 'out' || m.direction === 'outbound') ? 'text-[var(--color-wa-teal)]' : 'text-[var(--color-wa-muted)]'}`}>
                           {new Date(m.timestamp || m.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
                         </span>
-                        {(m.direction === 'out' || m.direction === 'outbound') && <MsgStatus status={m.status} />}
+                        {(m.direction === 'out' || m.direction === 'outbound') && <MsgStatus status={m.status} message={m} />}
                       </div>
 
                     {/* Reaction Badge */}

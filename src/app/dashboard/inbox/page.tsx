@@ -20,6 +20,7 @@ import {
   MoreVertical, CheckCheck, Check, Archive, VolumeX, ShieldAlert,
   UserX, UserCheck, ChevronLeft, ChevronRight, SmilePlus, Download, Play, Paperclip, X, ZoomIn, ZoomOut,
   Reply, ChevronDown, Trash2, Copy, Forward, Pin, Star,
+  AlertCircle,
 } from 'lucide-react';
 import { useMessageNavigation } from '@/hooks/useMessageNavigation';
 import { ReplyPreview } from '@/components/ReplyPreview';
@@ -42,11 +43,27 @@ function Avatar({ name, color, size = 9 }: any) {
   );
 }
 
-function MsgStatus({ status }: any) {
-  if (status === 'sending') return <div className="w-3 h-3 border border-[var(--color-wa-muted)] border-t-transparent rounded-full animate-spin-slow" />;
-  if (status === 'read')      return <CheckCheck size={13} color="#25D366" />;
-  if (status === 'delivered') return <CheckCheck size={13} color="var(--color-wa-muted)" />;
-  return <Check size={13} color="var(--color-wa-muted)" />;
+function MsgStatus({ status, message }: { status?: string; message?: any }) {
+  if (status === 'sending') {
+    return (
+      <span title="Sending...">
+        <div className="w-3 h-3 border border-[var(--color-wa-muted)] border-t-transparent rounded-full animate-spin-slow" />
+      </span>
+    );
+  }
+  if (status === 'failed') {
+    const errorMsg = message?.metadata?.error_message || message?.metadata?.error || 'Message failed to send or deliver';
+    const errorCode = message?.metadata?.error_code;
+    const fullTooltip = `Failed: ${errorMsg}${errorCode ? ` (${errorCode})` : ''}`;
+    return (
+      <span title={fullTooltip} className="inline-flex items-center gap-0.5 text-red-500 cursor-help" aria-label={fullTooltip}>
+        <AlertCircle size={14} className="text-[#ea0038] shrink-0 hover:scale-110 transition-transform" />
+      </span>
+    );
+  }
+  if (status === 'read')      return <span title="Read" className="inline-flex items-center"><CheckCheck size={13} color="#25D366" /></span>;
+  if (status === 'delivered') return <span title="Delivered" className="inline-flex items-center"><CheckCheck size={13} color="var(--color-wa-muted)" /></span>;
+  return <span title="Sent" className="inline-flex items-center"><Check size={13} color="var(--color-wa-muted)" /></span>;
 }
 
 const extractDriveId = (url: string): string | null => {
@@ -1322,7 +1339,7 @@ export default function InboxPage() {
                           <span className={`text-[10px] ${isOut ? 'text-[var(--color-wa-teal)]' : 'text-[var(--color-wa-muted)]'}`}>
                             {new Date(m.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
                           </span>
-                          {isOut && <MsgStatus status={m.status} />}
+                          {isOut && <MsgStatus status={m.status} message={m} />}
                         </div>
 
                         {!isRevoked && <TemplateButtonsBlock buttons={m.buttons} isOutbound={isOut} />}

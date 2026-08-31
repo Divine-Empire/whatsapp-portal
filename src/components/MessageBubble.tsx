@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CheckCheck, FileText, Download, Star as StarIcon } from 'lucide-react';
+import { CheckCheck, Check, AlertCircle, Clock, FileText, Download, Star as StarIcon } from 'lucide-react';
 import type { Message } from '../types';
 import MessageContextMenu from './MessageContextMenu';
 import { users as allUsers } from '../data/chats';
@@ -147,7 +147,27 @@ const MessageBubble = React.memo(({
               <span className="text-[11px] text-[var(--text-secondary)] opacity-90 uppercase translate-y-[1px]">{formatTime(timestamp)}</span>
               {isMe && !isDeleted && (
                 <div className="flex items-center">
-                  <CheckCheck size={16} className={`${status === 'read' ? 'text-[var(--wa-blue)]' : 'text-[var(--text-secondary)]'} opacity-90`} />
+                  {status === 'failed' ? (
+                    <span title="Failed to send/deliver" className="text-red-500 inline-flex items-center cursor-help">
+                      <AlertCircle size={14} className="text-[#ea0038]" />
+                    </span>
+                  ) : status === 'read' ? (
+                    <span title="Read" className="inline-flex items-center">
+                      <CheckCheck size={16} className="text-[var(--wa-blue)] opacity-90" />
+                    </span>
+                  ) : status === 'delivered' ? (
+                    <span title="Delivered" className="inline-flex items-center">
+                      <CheckCheck size={16} className="text-[var(--text-secondary)] opacity-90" />
+                    </span>
+                  ) : status === 'sent' ? (
+                    <span title="Sent" className="inline-flex items-center">
+                      <Check size={16} className="text-[var(--text-secondary)] opacity-90" />
+                    </span>
+                  ) : (
+                    <span title="Sending..." className="inline-flex items-center">
+                      <Clock size={13} className="text-[var(--text-secondary)] opacity-90" />
+                    </span>
+                  )}
                 </div>
               )}
             </div>
